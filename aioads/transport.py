@@ -1,0 +1,561 @@
+"""
+TCP transport implementation for ADS protocol.
+"""
+import asyncio
+import contextlib
+import logging
+import re
+from abc import ABC
+from dataclasses import dataclass
+from dataclasses import field
+from typing import Callable
+from typing import Coroutine
+from urllib.parse import urlparse
+from xml.etree import ElementTree
+
+import aiomqtt
+
+from aioads.ads_error_codes import AdsErrorCode
+from aioads.ams_address import AmsAddress
+from aioads.ams_header import AmsHeader
+from aioads.ams_tcp_header import AmsTcpHeader
+from aioads.commands.ads_command import AdsCommandId
+from aioads.commands.ads_command import AdsCommandState
+from aioads.stream import AdsStream
+
+
+class ITransport(ABC):
+    """
+    Interface for the transport implementation
+    """
+
+    async def request(self, command_payload: bytes,
+                      command_id: AdsCommandId,
+                      ams_address: AmsAddress
+                      ) -> tuple[AmsHeader, AdsStream]:
+        """
+        Send a request to the remote PLC and wait for the response.
+        :param data: The AmsMessage to send
+        :return: A tuple containing the AmsHeader and the payload bytes
+        """
+        raise NotImplementedError
+
+    async def connect(self):
+        """
+        Connect the transport to the remote PLC.
+        """
+        raise NotImplementedError
+
+    async def disconnect(self):
+        """
+        Disconnect the transport from the remote PLC.
+        """
+        raise NotImplementedError
+
+    def set_notification_callback(
+        self, callback: Callable[[AmsHeader, AdsStream], Coroutine[None, None, None]]
+    ) -> None:
+        """
+        Set a callback for ads notification events. 
+        This is currently only a experiemntal interface and mybe removed at any time.
+        :param callback: The callback to call when a notification is received. 
+        The callback should be a coroutine that takes an AmsHeader and an AdsStream as parameters.
+        """
+        raise NotImplementedError
+
+
+class BaseTransport:
+    """
+    Common base class for all transport implementations, providing common functionality for:
+        - Managing Invoke IDs and pending requests
+        - Handling responses and matching them to requests
+        - Handling notifications
+    """
+
+    def __init__(self, logger: logging.Logger) -> None:
+        self.logger = logger
+        self._invoke_id = 1
+        self._pending_requests: dict[int, asyncio.Future[tuple[AmsHeader, AdsStream]]] = (
+            {}
+        )
+        self._ads_notification_callback: (
+            None | Callable[[AmsHeader, AdsStream],
+                            Coroutine[None, None, None]]
+        ) = None
+
+    def set_notification_callback(
+        self, callback: Callable[[AmsHeader, AdsStream], Coroutine[None, None, None]]
+    ) -> None:
+        """
+        Setts the callback for incoming notifications
+        """
+        self._ads_notification_callback = callback
+
+    def cancel_pending_requests(self, ex: BaseException):
+        """
+        Cancel all pending requests with the give exception.
+        This is used to notify all pending requests when the connection is lost or an error occurs.
+        """
+        for future in self._pending_requests.values():
+            if not future.done():
+                future.set_exception(ex)
+
+    def get_next_invoke_id(self) -> int:
+        """
+        Get the next Invoke ID for a request.
+        :return: The next Invoke ID
+        """
+        invoke_id = self._invoke_id
+        self._invoke_id += 1
+        if self._invoke_id > 0xFFFFFFFF:
+            self._invoke_id = 1
+        return invoke_id
+
+    @contextlib.asynccontextmanager
+    async def subscribe_request(self, invoke_id: int):
+        """
+        Create a context to subscribe to a invoke ID for incoming responses. 
+        This uses a context manager to ensure we properly clean up
+        the pending request even if an error occurs or the request times out.
+        The future is yielded and gets fulfilled when a response with the corresponding invoke ID is received.
+
+        :param invoke_id: The invoke ID to subscribe to
+        """
+        self._pending_requests[invoke_id] = asyncio.Future()
+        try:
+            yield self._pending_requests[invoke_id]
+        finally:
+            del self._pending_requests[invoke_id]
+
+    async def _handle_response(self, ams_header: AmsHeader, ams_command: AdsStream):
+        # Fulfill the corresponding future
+        future = self._pending_requests.get(ams_header.invoke_id)
+        if future is not None and not future.done():
+            future.set_result((ams_header, ams_command))
+        elif future is None:
+            self.logger.warning(
+                "Received response with unknown Invoke ID %d",
+                ams_header.invoke_id,
+            )
+
+    async def _handle_request(self, ams_header: AmsHeader, ams_command: AdsStream):
+        if not ams_header.command_id == AdsCommandId.DEVICE_NOTIFICATION:
+            self.logger.warning(
+                "Received unexpected request with Command ID %d",
+                ams_header.command_id,
+            )
+            return
+
+        if not self._ads_notification_callback:
+            self.logger.warning(
+                "No notification callback set, dropping notification")
+            return
+
+        await self._ads_notification_callback(ams_header, ams_command)
+
+    @staticmethod
+    async def cancel_task(task: asyncio.Task[None] | None):
+        """
+        Cancel a given asyncio task.
+        """
+        if not task:
+            return
+
+        if task.done():
+            return await task
+
+        try:
+            return await asyncio.wait_for(task, timeout=5)
+        except asyncio.TimeoutError:
+            with contextlib.suppress(asyncio.CancelledError):
+                task.cancel()
+                return await task
+
+
+class AdsTcpTransport(BaseTransport, ITransport):
+    """
+    Transport implementation for ADS over TCP.
+    - Manages TCP connection
+    - Parse AMS Header for routing messages
+    - Handle Request / Response Matching
+    - Handle notifications
+    ! Backoff allows only a single connection from a src ip.
+    ! The transport can be re-used for multiple client that have the same target ip.
+    client 1 ---+
+                |
+    client 2 ---+--> transport <-> plc 1
+    client 3 ------> transport <-> plc 2
+    """
+
+    REQUEST_TIMEOUT = 120.0
+    CONNECT_TIMEOUT = 30.0
+
+    def __init__(
+        self,
+        src_address: AmsAddress,
+        ip: str,
+        port: int = 48898,
+    ) -> None:
+        """
+        Create a new AdsTcpTransport instance
+
+        :param ip: The target IP address
+        :param port: The target port
+        """
+        super().__init__(logger=logging.getLogger(f"{__name__}.'{ip}'"))
+        self.source_ams_address = src_address
+        self.ip = ip
+        self.port = port
+
+        self._stream: None | tuple[asyncio.StreamReader,
+                                   asyncio.StreamWriter] = None
+        self._stream_lock = asyncio.Lock()
+        self._reader_task: None | asyncio.Task[None] = None
+
+    def set_notification_callback(
+        self, callback: Callable[[AmsHeader, AdsStream], Coroutine[None, None, None]]
+    ) -> None:
+        self._ads_notification_callback = callback
+
+    async def connect(self):
+        """
+        Connect to the remote PLC via TCP.
+        """
+        if self._stream is not None:
+            return
+
+        self._stream = await asyncio.wait_for(
+            asyncio.open_connection(self.ip, self.port), self.CONNECT_TIMEOUT
+        )
+        self._reader_task = asyncio.create_task(self._reader())
+
+    async def disconnect(self):
+        """
+        Disconnect from the remote PLC.
+        """
+        if self._stream is None:
+            return
+
+        await self.cancel_task(self._reader_task)
+        _, writer = self._stream
+        writer.close()
+        await writer.wait_closed()
+
+        self._stream = None
+        self._reader_task = None
+
+    async def request(
+        self, command_payload: bytes, command_id: AdsCommandId, ams_address: AmsAddress
+    ):
+        """
+        Send a request to the remote PLC and wait for the response.
+        :param data: The AmsMessage to send
+
+        :return: A tuple containing the AmsHeader and the payload bytes
+        """
+        if self._stream is None:
+            raise ConnectionError("Not connected to the remote PLC")
+
+        invoke_id = self.get_next_invoke_id()
+
+        # Build AmsHeader
+        ams_header = AmsHeader(
+            target_ams_address=ams_address,
+            source_ams_address=self.source_ams_address,
+            command_id=command_id,
+            command_flags=AdsCommandState.ADS_COMMAND | AdsCommandState.ADS_REQUEST,
+            command_length=len(command_payload),
+            error_code=AdsErrorCode(0),
+            invoke_id=invoke_id,
+        )
+        ams_header_bytes = ams_header.serialize()
+
+        tcp_header = AmsTcpHeader(length=len(
+            ams_header_bytes) + len(command_payload))
+        tcp_header_bytes = tcp_header.serialize()
+
+        async with self.subscribe_request(invoke_id) as response_future:
+            async with self._stream_lock:
+                _, writer = self._stream
+                # Send request
+                writer.write(tcp_header_bytes +
+                             ams_header_bytes + command_payload)
+                await writer.drain()
+            return await asyncio.wait_for(
+                response_future, timeout=self.REQUEST_TIMEOUT
+            )
+
+    async def _reader(self):
+        """
+        Reader task that continuously reads from the TCP stream.
+        """
+        try:
+            if not self._stream:
+                raise ConnectionError("Not connected to the remote PLC")
+
+            reader, _ = self._stream
+            while True:
+                # Read AmsTcpHeader
+                tcp_header_bytes = await reader.readexactly(AmsTcpHeader.FIXED_SIZE)
+                tcp_header = AmsTcpHeader.deserialize(tcp_header_bytes)
+                payload_bytes = await reader.readexactly(tcp_header.length)
+
+                ams_message_stream = AdsStream(memoryview(payload_bytes))
+                ams_header = AmsHeader.deserialize(ams_message_stream)
+                ams_command = ams_message_stream.sub_stream(
+                    ams_header.command_length)
+
+                if AdsCommandState.ADS_RESPONSE in ams_header.command_flags:
+                    await self._handle_response(ams_header, ams_command)
+
+                elif AdsCommandState.ADS_REQUEST in ams_header.command_flags:
+                    await self._handle_request(ams_header, ams_command)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            self.logger.error("Reader task encountered an error", exc_info=e)
+            self.cancel_pending_requests(e)
+
+
+@dataclass
+class AdsOverMqttTopics:
+    """
+    Ads Over MQTT Topics
+    """
+
+    pub_info: str
+    """
+    The topic we publish our state information
+    """
+    pub_req: Callable[[str], str]
+    """
+    The topic we publish for requesting others
+    """
+    sub_response: str
+    """
+    The response topic we expect responses on
+    """
+
+    sub_info: str
+    """
+    The wildcard topic we subscribe to get the state of the other
+    """
+
+    _pattern_cache: dict[str, re.Pattern] = field(
+        default_factory=dict, init=False)
+
+    def matches(self, pattern: str, topic: str):
+        """
+        Matches a MQTT pattern string like `ads/+/info` and returns
+        - Null if not matches
+        - The matches with th wildcard `+` in capture group 1
+        """
+        if pattern not in self._pattern_cache:
+            regex = re.compile(pattern.replace(
+                '+', '([^/]*)').replace('/#', '(|/.*)'))
+            self._pattern_cache[pattern] = regex
+        return self._pattern_cache[pattern].fullmatch(topic)
+
+
+class AdsMqttTransport(BaseTransport, ITransport):
+    """
+    Transport implementation for ADS over MQTT.
+    As we can only have a single connection to the MQTT Broker, this transport
+    is designed to be shared between multiple client.
+    """
+
+    REQUEST_TIMEOUT = 120.0
+
+    def __init__(self, src: AmsAddress, name: str, url: str, prefix: str) -> None:
+        """
+        Create a new AdsMqttTransport instance.
+        :param src: The source AMS address for this transport, used for routing messages. 
+        !This has to be unique for each transport instance. 
+        !Overall if not other required use only a single MQTT Transport instance
+
+        client 1 ---+                 +--- PLC 1
+                    |                 |
+        client 2 ---+--> transport -- +
+                    |                 |
+        client 3 ---+                 +--- PLC 2
+
+        :param name: The name of this transport / client, used in the discovery identifier and for logging.
+        :param url: The MQTT broker URL, e.g. "mqtt://192.168.178.1:1883"
+        :param prefix: The prefix for MQTT topics, e.g. "VirtualAmsNetwork1"
+        """
+        super().__init__(logger=logging.getLogger(f"{__name__}.'{name}'"))
+        self.name = name
+        self.src = src
+        parsed_url = urlparse(url)
+        self.topics = AdsOverMqttTopics(
+            pub_info=f"{prefix}/{src.net_id}/info",
+            pub_req=lambda net_id: f"{prefix}/{net_id}/ams",
+            sub_info=f"{prefix}/+/info",
+            sub_response=f"{prefix}/{src.net_id}/ams/res"
+        )
+        self.remotes: dict[str, bool] = {}
+        self.remotes_initialized = asyncio.Future[None]()
+        will_message = aiomqtt.Will(
+            topic=self.topics.pub_info,
+            payload=self.create_info_message(online=False),
+            qos=aiomqtt.QoS.EXACTLY_ONCE,
+            retain=True,
+        )
+        self.client = aiomqtt.Client(
+            hostname=parsed_url.hostname,
+            port=parsed_url.port or 1883,
+            username=parsed_url.username,
+            password=parsed_url.password.encode() if parsed_url.password else None,
+            will=will_message,
+            identifier=name,
+            clean_start=True,
+            reconnect=True
+        )
+        self.exitstack = contextlib.AsyncExitStack()
+        self._reader_task: None | asyncio.Task[None] = None
+
+    async def connect(self):
+        """
+        Connect to the MQTT broker.
+        """
+        if self._reader_task is not None:
+            return
+
+        await self.exitstack.enter_async_context(self.client)
+        await self.client.publish(
+            self.topics.pub_info,
+            self.create_info_message(online=True),
+            qos=aiomqtt.QoS.AT_MOST_ONCE,
+            retain=True,
+            packet_id=next(self.client.packet_ids)
+        )
+        await self.client.subscribe(
+            self.topics.sub_info,
+        )
+        self._reader_task = asyncio.create_task(self._reader())
+        # ? Not sure if this really works, as this is set on the first message and
+        # ? other connection states maybe come to late and we should use a
+        # ? sleep / connect wait time or something like this.
+        await self.remotes_initialized
+
+    async def disconnect(self):
+        """
+        Disconnect from the MQTT broker.
+        """
+        await self.client.publish(
+            self.topics.pub_info,
+            self.create_info_message(online=False),
+            qos=aiomqtt.QoS.AT_MOST_ONCE,
+            retain=True,
+            packet_id=next(self.client.packet_ids)
+        )
+        await self.exitstack.aclose()
+        await self.cancel_task(self._reader_task)
+        self._reader_task = None
+
+    async def request(self, command_payload: bytes,
+                      command_id: AdsCommandId,
+                      ams_address: AmsAddress
+                      ) -> tuple[AmsHeader, AdsStream]:
+        """
+        Send a request to the remote PLC and wait for the response.
+        :param data: The AmsMessage to send
+        :return: A tuple containing the AmsHeader and the payload bytes
+        """
+        invoke_id = self.get_next_invoke_id()
+
+        if not self.remotes.get(ams_address.net_id, False):
+            raise ConnectionError(
+                f"The remote {ams_address.net_id} is not online / connected to the broker")
+
+        # Build AmsHeader
+        ams_header = AmsHeader(
+            target_ams_address=ams_address,
+            source_ams_address=self.src,
+            command_id=command_id,
+            command_flags=AdsCommandState.ADS_COMMAND | AdsCommandState.ADS_REQUEST,
+            command_length=len(command_payload),
+            error_code=AdsErrorCode(0),
+            invoke_id=invoke_id,
+        )
+        ams_header_bytes = ams_header.serialize()
+
+        async with self.subscribe_request(invoke_id) as response_future:
+            await self.client.publish(
+                self.topics.pub_req(ams_address.net_id),
+                ams_header_bytes + command_payload,
+                qos=aiomqtt.QoS.AT_MOST_ONCE,
+                packet_id=next(self.client.packet_ids)
+            )
+            return await asyncio.wait_for(
+                response_future, timeout=self.REQUEST_TIMEOUT
+            )
+
+    async def _reader(self):
+        try:
+            await self.client.subscribe(
+                self.topics.sub_response,
+                max_qos=aiomqtt.QoS.AT_MOST_ONCE,
+            )
+            async for message in self.client.messages():
+                if not isinstance(message, aiomqtt.PublishPacket):
+                    return
+
+                if self.topics.matches(self.topics.sub_response, message.topic):
+                    ams_message_stream = AdsStream(memoryview(message.payload))
+                    ams_header = AmsHeader.deserialize(ams_message_stream)
+                    ams_command = ams_message_stream.sub_stream(
+                        ams_header.command_length)
+
+                    if AdsCommandState.ADS_RESPONSE in ams_header.command_flags:
+                        await self._handle_response(ams_header, ams_command)
+                    elif AdsCommandState.ADS_REQUEST in ams_header.command_flags:
+                        await self._handle_request(ams_header, ams_command)
+                if (matches := self.topics.matches(self.topics.sub_info, message.topic)):
+                    # The initial connect waits till we have the first message received
+                    if not self.remotes_initialized.done():
+                        self.remotes_initialized.set_result(None)
+                    online = self.parse_info_message(message.payload)
+                    self.remotes[matches.group(1)] = online
+
+        except aiomqtt.ConnectError as ex:
+            # We can't say if this is expected on shutdown / disconnect or has another reason ?
+            # more mqtt lib testing required to check the re-connect behaviors
+            self.cancel_pending_requests(ex)
+        except Exception as ex:
+            self.logger.error("Reader task encountered an error", exc_info=ex)
+            self.cancel_pending_requests(ex)
+
+    def create_info_message(self, online: bool) -> bytes:
+        """
+        Creates a XML info message containing the required infromations about this
+        system / transport. The info message is used as a sort of network discovery.
+        Example of a plc payload: 
+        ```
+        <info>
+        <online name="RX40_000005" osVersion="10.0.14393" osPlatform="2" tcVersion="3.1.4024">true</online>
+        </info>
+        ```
+        """
+        element_info = ElementTree.Element("info")
+        element_online = ElementTree.SubElement(element_info, "online")
+        element_online.set("name", self.name.strip())
+        # ? Not sure if we need to set the below
+        element_online.set("osVersion", "10.0.14393")
+        element_online.set("osPlatform", "2")
+        element_online.set("tcVersion", "3.1.4024")
+        element_online.text = str(online).lower()
+
+        return ElementTree.tostring(element_info)
+
+    def parse_info_message(self, xml_bytes: bytes) -> bool:
+        """
+        Parses the <info> XML message and returns True/False
+        based on the <online> element's text content.
+        """
+        root = ElementTree.fromstring(xml_bytes)
+
+        online = root.find("online")
+        if online is None or online.text is None:
+            return False
+        return online.text.strip().lower() == "true"

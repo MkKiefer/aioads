@@ -1,0 +1,63 @@
+# ADS Notification Transmission Modes
+
+## Introduction to ADS Notifications
+
+ADS (Automation Device Specification) Notifications are an event-driven mechanism that allows clients to receive automatic updates when PLC variables change or at specific time intervals. Instead of continuously polling the PLC for data (which can be resource-intensive), notifications provide an efficient way to monitor variables and react to changes in real-time.
+
+When setting up an ADS notification, you register interest in a specific variable or memory area on the PLC. The PLC then monitors this data and sends notification messages to your client application based on the configured transmission mode.
+
+## Transmission Modes
+
+The transmission mode determines how and when notification events are triggered and delivered to the client application. Each mode has different performance characteristics and use cases.
+
+### Key Considerations
+
+- **Client-side modes** (ClientCycle, ClientOnChange) reduce server load but may have higher latency
+- **Server-side modes** (Cyclic, OnChange) provide real-time performance but can stress the PLC runtime
+- **Context-aware modes** (CyclicInContext, OnChangeInContext) allow synchronization with specific PLC tasks
+- Server-side notification limit: **1024 registrations maximum**
+
+### Available Transmission Modes
+
+| Member Name       | Value | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| None              | 0     | None / Uninitialized transport mode. No AdsNotification event is fired.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ClientCycle       | 1     | Client triggered cyclic AdsNotification event. The AdsNotification event is fired cyclically triggered from the client side. Polling is used from the User Application to read values, before they are fired as Notifications. Client side triggering has the following consequences: The realtime environment on the server side will be less stressed (especially the mailbox queue). Value requests are serialized one after another and are handled slower (synchronously, not asynchronously). Implicit synchronization of the events into the UI Thread.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ClientOnChange    | 2     | The AdsNotification event is fired when data changes triggered by the client. The AdsNotification event is fired on-change triggered from the client side. Polling is used from the User Application to read values, before they are fired as Notifications. Client side triggering has the following consequences: The realtime environment on the server side will be less stressed (especially the mailbox queue). Value requests are serialized one after another and are handled slower (synchronously, not asynchronously). Implicit synchronization of the events into the UI Thread.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Cyclic            | 3     | The AdsNotification event is fired cyclically. The Notification will be registered on the ADS Server side for a cyclical trigger (dependent on time parameter) and is bound to the 'default' task of the addressed target. In case of the PLC target (e.g. Port 851) the default task is the first configured task. Each time the 'default' task has finished its cycle the realtime system will check for the expired cycle time and sends the AdsNotification message on expiry. The used ContextMask for the 'default' task is 0. Please be aware, that server side 'Change' notifications stress the realtime system and should be handled with care. Therefore, dependent of the cycle time of the task and the capabilities of the system only a limited set of Cyclic Notifications should be used! A system limit for server side notification registrations is 1024.                                                                                                                                                                                                                                 |
+| OnChange          | 4     | On-Change AdsNotification event. The Notification will be registered on the ADS Server side for an on-change and optional cyclical trigger (dependent on parameters) and is bound to the 'default' task of the addressed target. In case of the PLC target (e.g. Port 851) the default task is the first configured task. Each time this task has finished its cycle the realtime system will check for the changed value and an optional expired cycle time and sends the AdsNotification message on change or expiry. The used ContextMask for the 'default' task is 0. Please be aware, that server side 'OnChange' notifications stress the realtime system / the default task with value comparisons. Therefore, dependent of the cycle time of the task and the capabilities of the system a higher amount of notification registrations should be handled with care! A system limit for server side notification registrations is 1024.                                                                                                                                                                |
+| CyclicInContext   | 5     | The AdsNotification event is fired cyclically within the given task context. A Value of parameter is interpreted as task context number ContextMask. This can be important, if the notifications have to be synchron with specific tasks, but should not be used in the default case. The Notification will be registered on the ADS Server side for a cyclical trigger (dependent on time parameter) and is bound to the task specified by the ContextMask of the addressed target. In case of the PLC target (e.g. Port 851) the ContextMask is the Index of the global TASKINFOARRAY - 1. Each time this task has finished its cycle the realtime system will check for the expired cycle time and sends the AdsNotification message on expiry.                                                                                                                                                                                                                                                                                                                                                            |
+| OnChangeInContext | 6     | The AdsNotification event is fired when the data changes within the given task context. A Value of parameter is interpreted as task context number ContextMask. This can be important, if the notifications have to be synchron with specific tasks, but should not be used in the default case. The Notification will be registered on the ADS Server side for an on-change and optional cyclical trigger (dependent on parameters) and is bound to the task specified by the ContextMask of the addressed target. In case of the PLC target (e.g. Port 851) the ContextMask is the Index of the global TASKINFOARRAY - 1. Each time this task has finished its cycle the realtime system will check for the changed value and an optional expired cycle time and sends the AdsNotification message on change or expiry. Please be aware, that server side 'OnChange' notifications stress the realtime system / the default task with value comparisons. Therefore, dependent of the cycle time of the task and the capabilities of the system only a limited set of OnChange Notifications should be used! |
+
+## Best Practices
+
+### When to use Client-side modes (ClientCycle, ClientOnChange)
+- When you need to reduce load on the PLC runtime system
+- For UI applications where implicit thread synchronization is beneficial
+- When network latency is not critical
+- For systems with limited server-side notification capacity
+
+### When to use Server-side modes (Cyclic, OnChange)
+- When real-time performance is critical
+- For high-frequency data monitoring
+- When you need immediate notification of changes
+- Be mindful of the 1024 notification limit
+
+### When to use Context-aware modes (CyclicInContext, OnChangeInContext)
+- When notifications need to be synchronized with specific PLC tasks
+- For advanced applications requiring precise timing control
+- Generally not recommended for standard use cases
+
+## Usage in Code
+
+```python
+from aioads import AdsNotificationTransMode
+
+# Example: Setting up a notification with OnChange mode
+notification_mode = AdsNotificationTransMode.OnChange
+```
+
+## Related Documentation
+
+- [ADS Add Notification Command](../aioads/commands/ads_add_notification.py)
+- [ADS Delete Notification Command](../aioads/commands/ads_delete_notification.py)
