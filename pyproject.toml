@@ -10,7 +10,7 @@ readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "MIT" }
 
 
-dependencies = ["aiomqtt>=v3.0.0-alpha.1"]
+dependencies = []
 [dependency-groups]
 dev = [
     "pylint>=3.3.3",
@@ -19,6 +19,10 @@ dev = [
 
     "parameterized>=0.9.0",
 ]
+
+[project.optional-dependencies]
+aiomqtt = ["aiomqtt>=v3.0.0-alpha.1"]
+gmqtt = ["gmqtt>=0.7.0"]
 
 
 [build-system]

@@ -10,13 +10,13 @@ import logging
 from aioads.ads_client import AdsClient
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read import AdsReadCommand
-from aioads.transport import AdsMqttTransport
+from aioads.transport import AdsAioMqttTransport
 
 logging.basicConfig(level=logging.DEBUG)
 
 
 async def main():
-    transport = AdsMqttTransport(
+    transport = AdsAioMqttTransport(
         src=AmsAddress(net_id="192.168.178.12.1.1", port=1234),
         name="AdsClient",
         url="mqtt://127.0.0.1:1883",

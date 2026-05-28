@@ -16,9 +16,18 @@ An asynchronous Python library for communicating with Beckhoff TwinCAT PLCs usin
 ## Installation
 
 ```bash
+# Ads TCP
 pdm add aioads
-
 pip install aioads
+
+# ADS over MQTT (gmqtt)
+pdm add aioads[gmqtt]
+pip install aioads[gmqtt]
+
+# Ads over MQTT (aiomqtt)
+pdm add aioads[aiomqtt]
+pip install aioads[aiomqtt]
+
 ```
 
 ## Quick Start

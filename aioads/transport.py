@@ -11,9 +11,9 @@ from dataclasses import field
 from typing import Callable
 from typing import Coroutine
 from urllib.parse import urlparse
+import uuid
 from xml.etree import ElementTree
 
-import aiomqtt
 
 from aioads.ads_error_codes import AdsErrorCode
 from aioads.ams_address import AmsAddress
@@ -56,9 +56,9 @@ class ITransport(ABC):
         self, callback: Callable[[AmsHeader, AdsStream], Coroutine[None, None, None]]
     ) -> None:
         """
-        Set a callback for ads notification events. 
+        Set a callback for ads notification events.
         This is currently only a experiemntal interface and mybe removed at any time.
-        :param callback: The callback to call when a notification is received. 
+        :param callback: The callback to call when a notification is received.
         The callback should be a coroutine that takes an AmsHeader and an AdsStream as parameters.
         """
         raise NotImplementedError
@@ -114,7 +114,7 @@ class BaseTransport:
     @contextlib.asynccontextmanager
     async def subscribe_request(self, invoke_id: int):
         """
-        Create a context to subscribe to a invoke ID for incoming responses. 
+        Create a context to subscribe to a invoke ID for incoming responses.
         This uses a context manager to ensure we properly clean up
         the pending request even if an error occurs or the request times out.
         The future is yielded and gets fulfilled when a response with the corresponding invoke ID is received.
@@ -357,20 +357,74 @@ class AdsOverMqttTopics:
         return self._pattern_cache[pattern].fullmatch(topic)
 
 
-class AdsMqttTransport(BaseTransport, ITransport):
+class MqttBaseTransport(BaseTransport):
+
+    REQUEST_TIMEOUT = 120.0
+
+    def __init__(self, src: AmsAddress, name: str, prefix: str, logger: logging.Logger) -> None:
+        super().__init__(logger)
+        self.name = name
+        self.src = src
+        self.topics = AdsOverMqttTopics(
+            pub_info=f"{prefix}/{src.net_id}/info",
+            pub_req=lambda net_id: f"{prefix}/{net_id}/ams",
+            sub_info=f"{prefix}/+/info",
+            sub_response=f"{prefix}/{src.net_id}/ams/res"
+        )
+
+    def create_info_message(self, online: bool) -> bytes:
+        """
+        Creates a XML info message containing the required infromations about this
+        system / transport. The info message is used as a sort of network discovery.
+        Example of a plc payload:
+        ```
+        <info>
+        <online name="RX40_000005" osVersion="10.0.14393" osPlatform="2" tcVersion="3.1.4024">true</online>
+        </info>
+        ```
+        """
+        element_info = ElementTree.Element("info")
+        element_online = ElementTree.SubElement(element_info, "online")
+        element_online.set("name", self.name.strip())
+        # ? Not sure if we need to set the below
+        element_online.set("osVersion", "10.0.14393")
+        element_online.set("osPlatform", "2")
+        element_online.set("tcVersion", "3.1.4024")
+        element_online.text = str(online).lower()
+
+        return ElementTree.tostring(element_info)
+
+    def parse_info_message(self, xml_bytes: bytes) -> bool:
+        """
+        Parses the <info> XML message and returns True/False
+        based on the <online> element's text content.
+        """
+        root = ElementTree.fromstring(xml_bytes)
+
+        online = root.find("online")
+        if online is None or online.text is None:
+            return False
+        return online.text.strip().lower() == "true"
+
+
+try:
+    import aiomqtt
+except ImportError:
+    pass
+
+
+class AdsAioMqttTransport(MqttBaseTransport, ITransport):
     """
-    Transport implementation for ADS over MQTT.
+    Transport implementation for ADS over MQTT using the aiomqtt client library.
     As we can only have a single connection to the MQTT Broker, this transport
     is designed to be shared between multiple client.
     """
 
-    REQUEST_TIMEOUT = 120.0
-
     def __init__(self, src: AmsAddress, name: str, url: str, prefix: str) -> None:
         """
         Create a new AdsMqttTransport instance.
-        :param src: The source AMS address for this transport, used for routing messages. 
-        !This has to be unique for each transport instance. 
+        :param src: The source AMS address for this transport, used for routing messages.
+        !This has to be unique for each transport instance.
         !Overall if not other required use only a single MQTT Transport instance
 
         client 1 ---+                 +--- PLC 1
@@ -383,16 +437,14 @@ class AdsMqttTransport(BaseTransport, ITransport):
         :param url: The MQTT broker URL, e.g. "mqtt://192.168.178.1:1883"
         :param prefix: The prefix for MQTT topics, e.g. "VirtualAmsNetwork1"
         """
-        super().__init__(logger=logging.getLogger(f"{__name__}.'{name}'"))
-        self.name = name
-        self.src = src
-        parsed_url = urlparse(url)
-        self.topics = AdsOverMqttTopics(
-            pub_info=f"{prefix}/{src.net_id}/info",
-            pub_req=lambda net_id: f"{prefix}/{net_id}/ams",
-            sub_info=f"{prefix}/+/info",
-            sub_response=f"{prefix}/{src.net_id}/ams/res"
+        super().__init__(
+            src=src,
+            name=name,
+            prefix=prefix,
+            logger=logging.getLogger(f"{__name__}.'{name}'")
         )
+        parsed_url = urlparse(url)
+
         self.remotes: dict[str, bool] = {}
         self.remotes_initialized = asyncio.Future[None]()
         will_message = aiomqtt.Will(
@@ -526,36 +578,157 @@ class AdsMqttTransport(BaseTransport, ITransport):
             self.logger.error("Reader task encountered an error", exc_info=ex)
             self.cancel_pending_requests(ex)
 
-    def create_info_message(self, online: bool) -> bytes:
-        """
-        Creates a XML info message containing the required infromations about this
-        system / transport. The info message is used as a sort of network discovery.
-        Example of a plc payload: 
-        ```
-        <info>
-        <online name="RX40_000005" osVersion="10.0.14393" osPlatform="2" tcVersion="3.1.4024">true</online>
-        </info>
-        ```
-        """
-        element_info = ElementTree.Element("info")
-        element_online = ElementTree.SubElement(element_info, "online")
-        element_online.set("name", self.name.strip())
-        # ? Not sure if we need to set the below
-        element_online.set("osVersion", "10.0.14393")
-        element_online.set("osPlatform", "2")
-        element_online.set("tcVersion", "3.1.4024")
-        element_online.text = str(online).lower()
 
-        return ElementTree.tostring(element_info)
+try:
+    import gmqtt
+except ImportError:
+    pass
 
-    def parse_info_message(self, xml_bytes: bytes) -> bool:
-        """
-        Parses the <info> XML message and returns True/False
-        based on the <online> element's text content.
-        """
-        root = ElementTree.fromstring(xml_bytes)
 
-        online = root.find("online")
-        if online is None or online.text is None:
-            return False
-        return online.text.strip().lower() == "true"
+class AdsGMqttTransport(MqttBaseTransport, ITransport):
+    """
+    Transport implementation for ADS over MQTT using the gmqtt client library.
+    As we can only have a single connection to the MQTT Broker, this transport
+    is designed to be shared between multiple client.
+    """
+
+    def __init__(self, src: AmsAddress, name: str, url: str, prefix: str) -> None:
+        """
+        Create a new AdsMqttTransport instance.
+        :param src: The source AMS address for this transport, used for routing messages.
+        !This has to be unique for each transport instance.
+        !Overall if not other required use only a single MQTT Transport instance
+
+        client 1 ---+                 +--- PLC 1
+                    |                 |
+        client 2 ---+--> transport -- +
+                    |                 |
+        client 3 ---+                 +--- PLC 2
+
+        :param name: The name of this transport / client, used in the discovery identifier and for logging.
+        :param url: The MQTT broker URL, e.g. "mqtt://192.168.178.1:1883"
+        :param prefix: The prefix for MQTT topics, e.g. "VirtualAmsNetwork1"
+        """
+        super().__init__(src=src, name=name, prefix=prefix,
+                         logger=logging.getLogger(f"{__name__}.'{name}'"))
+
+        self.url = urlparse(url)
+        self.client = gmqtt.Client(
+            client_id=uuid.uuid4().hex,
+            will_message=gmqtt.Message(
+                topic=self.topics.pub_info,
+                payload=self.create_info_message(online=False),
+                retain=True
+            ),
+            clean_session=True
+        )
+        if self.url.username and self.url.password:
+            self.client.set_auth_credentials(
+                username=self.url.username,
+                password=self.url.password
+            )
+        self.client.on_message = self._on_response
+
+        self.remotes: dict[str, bool] = {}
+        self.remotes_initialized = asyncio.Future[None]()
+
+    async def request(self, command_payload: bytes,
+                      command_id: AdsCommandId,
+                      ams_address: AmsAddress
+                      ) -> tuple[AmsHeader, AdsStream]:
+        """
+        Send a request to the remote PLC and wait for the response.
+        :param data: The AmsMessage to send
+        :return: A tuple containing the AmsHeader and the payload bytes
+        """
+        invoke_id = self.get_next_invoke_id()
+
+        if not self.remotes.get(ams_address.net_id, False):
+            raise ConnectionError(
+                f"The remote {ams_address.net_id} is not online / connected to the broker")
+
+        # Build AmsHeader
+        ams_header = AmsHeader(
+            target_ams_address=ams_address,
+            source_ams_address=self.src,
+            command_id=command_id,
+            command_flags=AdsCommandState.ADS_COMMAND | AdsCommandState.ADS_REQUEST,
+            command_length=len(command_payload),
+            error_code=AdsErrorCode(0),
+            invoke_id=invoke_id,
+        )
+        ams_header_bytes = ams_header.serialize()
+
+        async with self.subscribe_request(invoke_id) as response_future:
+            self.client.publish(
+                message_or_topic=gmqtt.Message(
+                    topic=self.topics.pub_req(ams_address.net_id),
+                    payload=ams_header_bytes + command_payload,
+                )
+            )
+            return await asyncio.wait_for(
+                response_future, timeout=self.REQUEST_TIMEOUT
+            )
+
+    async def _on_response(self, _client: gmqtt.Client, topic: str, payload: bytes, qos: int, properties: dict):
+        if self.topics.matches(self.topics.sub_response, topic):
+            ams_message_stream = AdsStream(memoryview(payload))
+            ams_header = AmsHeader.deserialize(ams_message_stream)
+            ams_command = ams_message_stream.sub_stream(
+                ams_header.command_length)
+
+            if AdsCommandState.ADS_RESPONSE in ams_header.command_flags:
+                await self._handle_response(ams_header, ams_command)
+            elif AdsCommandState.ADS_REQUEST in ams_header.command_flags:
+                await self._handle_request(ams_header, ams_command)
+        if (matches := self.topics.matches(self.topics.sub_info, topic)):
+            # The initial connect waits till we have the first message received
+            if not self.remotes_initialized.done():
+                self.remotes_initialized.set_result(None)
+            online = self.parse_info_message(payload)
+            self.remotes[matches.group(1)] = online
+
+    async def connect(self):
+        """
+        Connect the transport to the remote PLC.
+        """
+        if self.client.is_connected:
+            return
+
+        await self.client.connect(
+            host=self.url.hostname,
+            port=self.url.port or 1883,
+            ssl=self.url.scheme == "mqtts"
+        )
+        self.client.publish(
+            message_or_topic=gmqtt.Message(
+                topic=self.topics.pub_info,
+                payload=self.create_info_message(online=True),
+                retain=True,
+            )
+        )
+        self.client.subscribe(
+            subscription_or_topic=gmqtt.Subscription(
+                topic=self.topics.sub_info,
+                no_local=False
+            )
+        )
+        await self.remotes_initialized
+        self.client.subscribe(
+            subscription_or_topic=gmqtt.Subscription(
+                topic=self.topics.sub_response
+            )
+        )
+
+    async def disconnect(self):
+        """
+        Disconnect the transport from the remote PLC.
+        """
+        self.client.publish(
+            message_or_topic=gmqtt.Message(
+                topic=self.topics.pub_info,
+                payload=self.create_info_message(False),
+                retain=True
+            )
+        )
+        await self.client.disconnect()
