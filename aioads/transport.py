@@ -3,7 +3,9 @@ TCP transport implementation for ADS protocol.
 """
 import asyncio
 import contextlib
+import enum
 import logging
+import random
 import re
 from abc import ABC
 from dataclasses import dataclass
@@ -62,6 +64,23 @@ class ITransport(ABC):
         The callback should be a coroutine that takes an AmsHeader and an AdsStream as parameters.
         """
         raise NotImplementedError
+
+
+class ConnectionState(enum.Enum):
+    """
+    Lifecycle state of a transport connection.
+    """
+
+    DISCONNECTED = enum.auto()
+    """Never connected, or the initial connect failed."""
+    CONNECTING = enum.auto()
+    """Initial connect attempt in progress."""
+    CONNECTED = enum.auto()
+    """Connected; requests are allowed."""
+    RECONNECTING = enum.auto()
+    """Connection dropped; the supervisor is re-establishing it. Requests fail fast."""
+    CLOSED = enum.auto()
+    """Intentionally closed via disconnect(); the supervisor must not reconnect."""
 
 
 class BaseTransport:
@@ -189,6 +208,8 @@ class AdsTcpTransport(BaseTransport, ITransport):
 
     REQUEST_TIMEOUT = 120.0
     CONNECT_TIMEOUT = 30.0
+    RECONNECT_INITIAL_BACKOFF = 1.0
+    RECONNECT_MAX_BACKOFF = 30.0
 
     def __init__(
         self,
@@ -210,7 +231,8 @@ class AdsTcpTransport(BaseTransport, ITransport):
         self._stream: None | tuple[asyncio.StreamReader,
                                    asyncio.StreamWriter] = None
         self._stream_lock = asyncio.Lock()
-        self._reader_task: None | asyncio.Task[None] = None
+        self._supervisor_task: None | asyncio.Task[None] = None
+        self._state = ConnectionState.DISCONNECTED
 
     def set_notification_callback(
         self, callback: Callable[[AmsHeader, AdsStream], Coroutine[None, None, None]]
@@ -220,29 +242,63 @@ class AdsTcpTransport(BaseTransport, ITransport):
     async def connect(self):
         """
         Connect to the remote PLC via TCP.
+
+        Performs the initial connection synchronously and raises on failure.
+        On success a background supervisor task takes over the read loop and
+        transparently reconnects (with backoff) if the connection drops.
         """
-        if self._stream is not None:
+        if self._supervisor_task is not None and not self._supervisor_task.done():
             return
 
-        self._stream = await asyncio.wait_for(
-            asyncio.open_connection(self.ip, self.port), self.CONNECT_TIMEOUT
-        )
-        self._reader_task = asyncio.create_task(self._reader())
+        self._state = ConnectionState.CONNECTING
+        try:
+            await self._open()
+        except Exception:
+            self._state = ConnectionState.DISCONNECTED
+            raise
+        self._supervisor_task = asyncio.create_task(self._supervise())
 
     async def disconnect(self):
         """
-        Disconnect from the remote PLC.
+        Disconnect from the remote PLC and stop the supervisor.
+
+        Sets CLOSED first so the supervisor does not attempt to reconnect, then
+        tears down the stream (which unblocks the read loop) and awaits the
+        supervisor task.
         """
-        if self._stream is None:
-            return
+        self._state = ConnectionState.CLOSED
+        await self._teardown_stream(ConnectionError("Transport disconnected"))
+        await self.cancel_task(self._supervisor_task)
+        self._supervisor_task = None
 
-        await self.cancel_task(self._reader_task)
-        _, writer = self._stream
-        writer.close()
-        await writer.wait_closed()
+    async def _open(self):
+        """
+        Open the TCP connection and publish it as the active stream.
+        Raises on failure; callers own the surrounding state transitions.
+        """
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(self.ip, self.port), self.CONNECT_TIMEOUT
+        )
+        async with self._stream_lock:
+            self._stream = (reader, writer)
+        self._state = ConnectionState.CONNECTED
 
-        self._stream = None
-        self._reader_task = None
+    async def _teardown_stream(self, ex: BaseException):
+        """
+        Fail all in-flight requests and close the current stream (if any).
+
+        In-flight requests are intentionally *not* replayed: a write may already
+        have been applied on the PLC, so resending could double-apply it.
+        """
+        self.cancel_pending_requests(ex)
+        async with self._stream_lock:
+            stream = self._stream
+            self._stream = None
+        if stream is not None:
+            _, writer = stream
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
 
     async def request(
         self, command_payload: bytes, command_id: AdsCommandId, ams_address: AmsAddress
@@ -253,8 +309,10 @@ class AdsTcpTransport(BaseTransport, ITransport):
 
         :return: A tuple containing the AmsHeader and the payload bytes
         """
-        if self._stream is None:
-            raise ConnectionError("Not connected to the remote PLC")
+        if self._state is not ConnectionState.CONNECTED:
+            raise ConnectionError(
+                f"Not connected to the remote (state: {self._state.name})"
+            )
 
         invoke_id = self.get_next_invoke_id()
 
@@ -276,7 +334,14 @@ class AdsTcpTransport(BaseTransport, ITransport):
 
         async with self.subscribe_request(invoke_id) as response_future:
             async with self._stream_lock:
-                _, writer = self._stream
+                stream = self._stream
+                if stream is None:
+                    # A teardown raced this send; surface the failure it already
+                    # set on the future rather than a fresh, unretrieved one.
+                    if response_future.done():
+                        return await response_future
+                    raise ConnectionError("Not connected to the remote")
+                _, writer = stream
                 # Send request
                 writer.write(tcp_header_bytes +
                              ams_header_bytes + command_payload)
@@ -285,36 +350,72 @@ class AdsTcpTransport(BaseTransport, ITransport):
                 response_future, timeout=self.REQUEST_TIMEOUT
             )
 
-    async def _reader(self):
+    async def _supervise(self):
         """
-        Reader task that continuously reads from the TCP stream.
+        Own the connection lifecycle: run the read loop, and when the connection
+        drops, fail in-flight requests and reconnect with exponential backoff.
+
+        This is the only place that reconnects, so concurrent senders never
+        trigger competing reconnect attempts. Senders fail fast instead (see
+        :meth:`request`), which also respects the Beckhoff single-connection
+        backoff/lockout behavior.
         """
-        try:
-            if not self._stream:
-                raise ConnectionError("Not connected to the remote PLC")
+        backoff = self.RECONNECT_INITIAL_BACKOFF
+        while self._state is not ConnectionState.CLOSED:
+            try:
+                await self._read_loop()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self.logger.info("Connection lost: %s", e)
 
-            reader, _ = self._stream
-            while True:
-                # Read AmsTcpHeader
-                tcp_header_bytes = await reader.readexactly(AmsTcpHeader.FIXED_SIZE)
-                tcp_header = AmsTcpHeader.deserialize(tcp_header_bytes)
-                payload_bytes = await reader.readexactly(tcp_header.length)
+            if self._state is ConnectionState.CLOSED:
+                break
 
-                ams_message_stream = AdsStream(memoryview(payload_bytes))
-                ams_header = AmsHeader.deserialize(ams_message_stream)
-                ams_command = ams_message_stream.sub_stream(
-                    ams_header.command_length)
+            self._state = ConnectionState.RECONNECTING
+            await self._teardown_stream(ConnectionError("Connection lost"))
 
-                if AdsCommandState.ADS_RESPONSE in ams_header.command_flags:
-                    await self._handle_response(ams_header, ams_command)
+            while self._state is not ConnectionState.CLOSED:
+                try:
+                    await self._open()
+                    self.logger.info("Reconnected to the remote")
+                    backoff = self.RECONNECT_INITIAL_BACKOFF
+                    break
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:  # pylint: disable=broad-exception-caught
+                    self.logger.info(
+                        "Reconnect failed: %s, retrying in %.1fs", e, backoff
+                    )
+                    await asyncio.sleep(backoff + random.uniform(0, backoff))
+                    backoff = min(backoff * 2, self.RECONNECT_MAX_BACKOFF)
 
-                elif AdsCommandState.ADS_REQUEST in ams_header.command_flags:
-                    await self._handle_request(ams_header, ams_command)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            self.logger.error("Reader task encountered an error", exc_info=e)
-            self.cancel_pending_requests(e)
+    async def _read_loop(self):
+        """
+        Continuously read and dispatch messages from the active stream.
+        Returns/raises when the connection drops; the supervisor handles recovery.
+        """
+        stream = self._stream
+        if stream is None:
+            raise ConnectionError("Not connected to the remote PLC")
+
+        reader, _ = stream
+        while True:
+            # Read AmsTcpHeader
+            tcp_header_bytes = await reader.readexactly(AmsTcpHeader.FIXED_SIZE)
+            tcp_header = AmsTcpHeader.deserialize(tcp_header_bytes)
+            payload_bytes = await reader.readexactly(tcp_header.length)
+
+            ams_message_stream = AdsStream(memoryview(payload_bytes))
+            ams_header = AmsHeader.deserialize(ams_message_stream)
+            ams_command = ams_message_stream.sub_stream(
+                ams_header.command_length)
+
+            if AdsCommandState.ADS_RESPONSE in ams_header.command_flags:
+                await self._handle_response(ams_header, ams_command)
+
+            elif AdsCommandState.ADS_REQUEST in ams_header.command_flags:
+                await self._handle_request(ams_header, ams_command)
 
 
 @dataclass
