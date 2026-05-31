@@ -67,6 +67,8 @@ class PrimitiveTypeParser(ISymbolParser):
 
     def parse(self, data_type: AdsSymbolDataType, type_name: str,  raw_data: AdsStream) -> Any:
         """Parse a primitive data type."""
+        if data_type == AdsSymbolDataType.VOID:
+            return None
         if data_type == AdsSymbolDataType.STRING:
             return self._parse_string(type_name, raw_data)
         if data_type == AdsSymbolDataType.WSTRING:
