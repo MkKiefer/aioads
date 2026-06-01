@@ -364,7 +364,8 @@ class AdsTcpTransport(BaseTransport, ITransport):
         while self._state is not ConnectionState.CLOSED:
             try:
                 await self._read_loop()
-            except asyncio.CancelledError:
+            except asyncio.CancelledError: #pylint: disable=try-except-raise
+                # Except everything... except a cancellation event
                 raise
             except Exception as e:
                 self.logger.info("Connection lost: %s", e)
@@ -381,7 +382,7 @@ class AdsTcpTransport(BaseTransport, ITransport):
                     self.logger.info("Reconnected to the remote")
                     backoff = self.RECONNECT_INITIAL_BACKOFF
                     break
-                except asyncio.CancelledError:
+                except asyncio.CancelledError: #pylint: disable=try-except-raise
                     raise
                 except Exception as e:  # pylint: disable=broad-exception-caught
                     self.logger.info(
@@ -459,6 +460,7 @@ class AdsOverMqttTopics:
 
 
 class MqttBaseTransport(BaseTransport):
+    """Base transport that tunnels AMS/ADS frames over an MQTT broker."""
 
     REQUEST_TIMEOUT = 120.0
 
@@ -771,7 +773,7 @@ class AdsGMqttTransport(MqttBaseTransport, ITransport):
                 response_future, timeout=self.REQUEST_TIMEOUT
             )
 
-    async def _on_response(self, _client: gmqtt.Client, topic: str, payload: bytes, qos: int, properties: dict):
+    async def _on_response(self, _client: gmqtt.Client, topic: str, payload: bytes, _qos: int, _properties: dict):
         if self.topics.matches(self.topics.sub_response, topic):
             ams_message_stream = AdsStream(memoryview(payload))
             ams_header = AmsHeader.deserialize(ams_message_stream)

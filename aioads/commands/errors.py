@@ -27,4 +27,7 @@ class AdsCommandError(Exception):
 
     def __repr__(self) -> str:
         """Returns a detailed representation of the error for debugging."""
-        return f"AdsCommandError(error_code={self.error_code!r}, error_message:{self.error_code.description} args={self.args!r})"
+        return (
+            f"AdsCommandError(error_code={self.error_code!r}, "
+            f"error_message:{self.error_code.description} args={self.args!r})"
+        )
