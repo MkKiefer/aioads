@@ -266,36 +266,59 @@ class AdsClient:
     ) -> dict[str, SymbolReadResult]:
         """
         Read multiple symbols by their names from the ADS device.
+
+        The returned dict is keyed by the symbol names exactly as requested,
+        preserving their original casing.
         """
         symbol_infos = await self._cache.read_symbol_infos_by_names(symbol_names)
         if raise_errors:
             self._raise_if_error(symbol_infos)
 
-        read_commands = [
-            AdsReadCommand(
-                transport=self.transport,
-                ams_address=self.dst_address,
-                idx_group=symbol_info.idx_group,
-                idx_offset=symbol_info.idx_offset,
-                length=symbol_info.idx_length,
-            )
-            for _, symbol_info in symbol_infos.values()
-        ]
+        output: dict[str, SymbolReadResult] = {}
+
+        # Only symbols whose info resolved successfully can be read. Symbols
+        # with a lookup error are reported as-is; building a read command from
+        # their (invalid) index group/offset would misalign the bulk response.
+        readable: list[tuple[str, SymbolInfo]] = []
+        for requested_name, (error_code, symbol_info) in symbol_infos.items():
+            if not error_code.ok:
+                output[requested_name] = SymbolReadResult(error_code, None)
+            else:
+                readable.append((requested_name, symbol_info))
+
+        if not readable:
+            return output
+
         function = AdsSumRead(
             transport=self.transport,
             ams_address=self.dst_address,
-            commands=read_commands,
+            commands=[
+                AdsReadCommand(
+                    transport=self.transport,
+                    ams_address=self.dst_address,
+                    idx_group=symbol_info.idx_group,
+                    idx_offset=symbol_info.idx_offset,
+                    length=symbol_info.idx_length,
+                )
+                for _, symbol_info in readable
+            ],
         )
-
         response = await function.execute()
-        output: dict[str, SymbolReadResult] = {}
 
+        loop = asyncio.get_running_loop()
+        parse_names: list[str] = []
         tasks = []
-        for (_, resp_payload), (error_code, symbol_info) in zip(
-            response, symbol_infos.values()
+        for (requested_name, symbol_info), (read_response, resp_payload) in zip(
+            readable, response
         ):
+            # A failed read yields no usable payload, so skip parsing it.
+            if read_response.error_code != 0:
+                output[requested_name] = SymbolReadResult(
+                    read_response.error_code, None)
+                continue
+            parse_names.append(requested_name)
             tasks.append(
-                asyncio.get_running_loop().run_in_executor(
+                loop.run_in_executor(
                     self.parser_pool,
                     self.parser.parse,
                     symbol_info.data_type,
@@ -303,11 +326,11 @@ class AdsClient:
                     resp_payload,
                 )
             )
-        parsed = await asyncio.gather(*tasks)
 
-        for symbol_data, (error_code, symbol_info) in zip(parsed, symbol_infos.values()):
-            output[symbol_info.symbol_name] = SymbolReadResult(
-                error_code, symbol_data)
+        parsed = await asyncio.gather(*tasks)
+        for requested_name, symbol_data in zip(parse_names, parsed):
+            output[requested_name] = SymbolReadResult(
+                AdsErrorCode(0), symbol_data)
 
         return output
 

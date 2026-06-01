@@ -65,6 +65,11 @@ exclude_also = [
 [tool.pylint.format]
 max-line-length = 120
 
+[tool.pylint.similarities]
+# Allow more duplication before flagging R0801 (duplicate-code) instead of
+# disabling the check entirely.
+min-similarity-lines = 10
+
 [tool.pylint."messages control"]
 disable = [
     "too-many-instance-attributes",
