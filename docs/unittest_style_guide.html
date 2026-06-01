@@ -1,0 +1,1739 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Python unittest Style Guide</title>
+  <style>
+    :root {
+      --bg: #0d0f12;
+      --surface: #13161b;
+      --border: #1f242c;
+      --accent: #f0c040;
+      --accent2: #4fc1e0;
+      --accent3: #a78bfa;
+      --red: #f87171;
+      --green: #4ade80;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --code-bg: #0a0c0f;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Syne', sans-serif;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* Hero */
+    .hero {
+      border-bottom: 1px solid var(--border);
+      padding: 64px 48px 48px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -80px;
+      right: -80px;
+      width: 400px;
+      height: 400px;
+      background: radial-gradient(circle, rgba(240, 192, 64, 0.07) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 16px;
+    }
+
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      max-width: 700px;
+    }
+
+    .hero h1 span {
+      color: var(--accent);
+    }
+
+    .hero p {
+      margin-top: 20px;
+      color: var(--muted);
+      font-size: 1rem;
+      max-width: 560px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+    }
+
+    /* Layout */
+    .layout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      min-height: calc(100vh - 180px);
+    }
+
+    /* Sidebar */
+    .sidebar {
+      border-right: 1px solid var(--border);
+      padding: 32px 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .sidebar-section {
+      margin-bottom: 28px;
+      padding: 0 24px;
+    }
+
+    .sidebar-heading {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .sidebar a {
+      display: block;
+      font-size: 13px;
+      color: #94a3b8;
+      text-decoration: none;
+      padding: 5px 0;
+      transition: color 0.15s;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    .sidebar a:hover {
+      color: var(--accent);
+    }
+
+    /* Content */
+    .content {
+      padding: 48px 56px;
+      max-width: 860px;
+    }
+
+    /* Section */
+    .section {
+      margin-bottom: 72px;
+    }
+
+    .section-number {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: var(--accent);
+      letter-spacing: 0.15em;
+      margin-bottom: 8px;
+    }
+
+    .section h2 {
+      font-size: 1.75rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .section-intro {
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      margin-bottom: 32px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* Rules */
+    .rule {
+      margin-bottom: 40px;
+    }
+
+    .rule-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .rule-tag {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 600;
+    }
+
+    .tag-do {
+      background: rgba(74, 222, 128, 0.12);
+      color: var(--green);
+      border: 1px solid rgba(74, 222, 128, 0.25);
+    }
+
+    .tag-avoid {
+      background: rgba(248, 113, 113, 0.12);
+      color: var(--red);
+      border: 1px solid rgba(248, 113, 113, 0.25);
+    }
+
+    .tag-note {
+      background: rgba(79, 193, 224, 0.12);
+      color: var(--accent2);
+      border: 1px solid rgba(79, 193, 224, 0.25);
+    }
+
+    .rule h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .rule p {
+      color: #94a3b8;
+      font-size: 14px;
+      margin-bottom: 16px;
+      line-height: 1.7;
+    }
+
+    /* Code blocks */
+    .code-pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    @media (max-width: 700px) {
+      .code-pair {
+        grid-template-columns: 1fr;
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .content {
+        padding: 32px 24px;
+      }
+    }
+
+    .code-block {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .code-block.good {
+      border-top: 2px solid var(--green);
+    }
+
+    .code-block.bad {
+      border-top: 2px solid var(--red);
+    }
+
+    .code-block.neutral {
+      border-top: 2px solid var(--accent2);
+    }
+
+    .code-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .code-label.good {
+      color: var(--green);
+    }
+
+    .code-label.bad {
+      color: var(--red);
+    }
+
+    .code-label.neutral {
+      color: var(--accent2);
+    }
+
+    pre {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12.5px;
+      line-height: 1.7;
+      padding: 16px;
+      overflow-x: auto;
+      color: #cbd5e1;
+    }
+
+    .kw {
+      color: #c084fc;
+    }
+
+    .fn {
+      color: #60a5fa;
+    }
+
+    .st {
+      color: #34d399;
+    }
+
+    .cm {
+      color: #475569;
+      font-style: italic;
+    }
+
+    .de {
+      color: var(--accent);
+    }
+
+    .cl {
+      color: #f0abfc;
+    }
+
+    .num {
+      color: #fb923c;
+    }
+
+    .err {
+      color: var(--red);
+    }
+
+    /* Pill badges */
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 16px 0;
+    }
+
+    .badge {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    /* Table */
+    .guide-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      margin: 16px 0;
+    }
+
+    .guide-table th {
+      text-align: left;
+      padding: 10px 14px;
+      background: var(--surface);
+      color: var(--accent);
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .guide-table td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      color: #94a3b8;
+      vertical-align: top;
+    }
+
+    .guide-table td:first-child {
+      color: var(--text);
+    }
+
+    .guide-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* Callout */
+    .callout {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent3);
+      border-radius: 4px;
+      padding: 16px 20px;
+      font-size: 13px;
+      color: #94a3b8;
+      margin: 20px 0;
+      font-family: 'IBM Plex Mono', monospace;
+      line-height: 1.7;
+    }
+
+    .callout strong {
+      color: var(--accent3);
+    }
+
+    /* Divider */
+    hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 40px 0;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 24px 48px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="hero">
+    <div class="hero-label">// Style Guide v1.5</div>
+    <h1>Python <span>unittest</span><br>Style Guide</h1>
+    <p>Conventions and patterns for writing clear, maintainable, and reliable Python unit tests.</p>
+  </div>
+
+  <div class="layout">
+
+    <nav class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-heading">Sections</div>
+        <a href="#naming">01 — Naming</a>
+        <a href="#structure">02 — Structure</a>
+        <a href="#assertions">03 — Assertions</a>
+        <a href="#setup">04 — Setup & Teardown</a>
+        <a href="#mocking">05 — Mocking</a>
+        <a href="#organization">06 — Organization</a>
+        <a href="#exceptions">07 — Exceptions</a>
+        <a href="#coverage">08 — Coverage</a>
+        <a href="#testcase">09 — TestCase Classes</a>
+        <a href="#private">10 — No Private Access</a>
+        <a href="#type-safe-mocks">11 — Type-Safe Mocks</a>
+        <a href="#mock-placement">12 — Mock Placement</a>
+        <a href="#full-example">13 — Full Example</a>
+        <a href="#parameterized">14 — Parameterized Tests</a>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-heading">Quick Ref</div>
+        <a href="#assertion-table">Assertion Table</a>
+        <a href="#checklist">Checklist</a>
+      </div>
+    </nav>
+
+    <main class="content">
+
+      <!-- NAMING -->
+      <section class="section" id="naming">
+        <div class="section-number">// 01</div>
+        <h2>Naming</h2>
+        <div class="section-intro">Names are the first documentation a reader sees. Make them count.</div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Use descriptive test method names</h3>
+          </div>
+          <p>Test names should read like a sentence describing the scenario and expected outcome. Follow the pattern:
+            <code style="color:var(--accent2)">test_&lt;unit&gt;_&lt;scenario&gt;_&lt;expected&gt;</code></p>
+          <div class="code-pair">
+            <div class="code-block good">
+              <div class="code-label good">✓ Good</div>
+              <pre><span class="kw">def</span> <span class="fn">test_divide_by_zero_raises_value_error</span>(<span class="kw">self</span>):
+    ...
+
+<span class="kw">def</span> <span class="fn">test_login_with_invalid_password_returns_false</span>(<span class="kw">self</span>):
+    ...
+
+<span class="kw">def</span> <span class="fn">test_cart_adds_item_updates_total</span>(<span class="kw">self</span>):
+    ...</pre>
+            </div>
+            <div class="code-block bad">
+              <div class="code-label bad">✗ Avoid</div>
+              <pre><span class="kw">def</span> <span class="fn">test_divide</span>(<span class="kw">self</span>):
+    ...
+
+<span class="kw">def</span> <span class="fn">test_login2</span>(<span class="kw">self</span>):
+    ...
+
+<span class="kw">def</span> <span class="fn">test_stuff</span>(<span class="kw">self</span>):
+    ...</pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Name test classes after the unit under test</h3>
+          </div>
+          <p>The class name should mirror the module or class being tested, prefixed with <code
+              style="color:var(--accent2)">Test</code>.</p>
+          <div class="code-pair">
+            <div class="code-block good">
+              <div class="code-label good">✓ Good</div>
+              <pre><span class="kw">class</span> <span class="cl">TestUserService</span>(unittest.TestCase):
+    ...
+
+<span class="kw">class</span> <span class="cl">TestPaymentProcessor</span>(unittest.TestCase):
+    ...</pre>
+            </div>
+            <div class="code-block bad">
+              <div class="code-label bad">✗ Avoid</div>
+              <pre><span class="kw">class</span> <span class="cl">MyTests</span>(unittest.TestCase):
+    ...
+
+<span class="kw">class</span> <span class="cl">Tests</span>(unittest.TestCase):
+    ...</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- STRUCTURE -->
+      <section class="section" id="structure">
+        <div class="section-number">// 02</div>
+        <h2>Structure (AAA Pattern)</h2>
+        <div class="section-intro">Every test should follow Arrange → Act → Assert. One assertion focus per test.</div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Follow Arrange → Act → Assert</h3>
+          </div>
+          <p>Separate test phases visually with blank lines and optional inline comments. Each test should verify one
+            logical behaviour.</p>
+          <div class="code-block good" style="margin-bottom:12px">
+            <div class="code-label good">✓ Good — clear AAA structure</div>
+            <pre><span class="kw">def</span> <span class="fn">test_apply_discount_reduces_price_by_percentage</span>(<span class="kw">self</span>):
+    <span class="cm"># Arrange</span>
+    product = Product(name=<span class="st">"Widget"</span>, price=<span class="num">100.0</span>)
+    discount = Discount(percentage=<span class="num">20</span>)
+
+    <span class="cm"># Act</span>
+    result = discount.apply(product)
+
+    <span class="cm"># Assert</span>
+    <span class="kw">self</span>.assertEqual(result.price, <span class="num">80.0</span>)</pre>
+          </div>
+          <div class="code-block bad">
+            <div class="code-label bad">✗ Avoid — interleaved setup and assertions</div>
+            <pre><span class="kw">def</span> <span class="fn">test_discount</span>(<span class="kw">self</span>):
+    product = Product(<span class="st">"Widget"</span>, <span class="num">100.0</span>)
+    <span class="kw">self</span>.assertEqual(product.price, <span class="num">100.0</span>)
+    discount = Discount(<span class="num">20</span>)
+    result = discount.apply(product)
+    <span class="kw">self</span>.assertEqual(result.price, <span class="num">80.0</span>)
+    <span class="kw">self</span>.assertEqual(result.name, <span class="st">"Widget"</span>)</pre>
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-avoid">AVOID</span>
+            <h3>Multiple unrelated assertions in one test</h3>
+          </div>
+          <p>When a test fails, you want to know exactly what broke. Multiple concerns make failures ambiguous.</p>
+          <div class="callout">
+            <strong>Rule of thumb:</strong> if you find yourself writing "and" in a test name —
+            <code>test_login_succeeds_and_sets_session_and_logs_event</code> — it should be three separate tests.
+          </div>
+        </div>
+      </section>
+
+      <!-- ASSERTIONS -->
+      <section class="section" id="assertions">
+        <div class="section-number">// 03</div>
+        <h2>Assertions</h2>
+        <div class="section-intro">Always use the most specific assertion available for better failure messages.</div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Use specific assertion methods</h3>
+          </div>
+          <div class="code-pair">
+            <div class="code-block good">
+              <div class="code-label good">✓ Specific &amp; informative</div>
+              <pre><span class="kw">self</span>.assertIsNone(result)
+<span class="kw">self</span>.assertIn(<span class="st">"admin"</span>, roles)
+<span class="kw">self</span>.assertIsInstance(obj, MyClass)
+<span class="kw">self</span>.assertAlmostEqual(x, <span class="num">3.14</span>, places=<span class="num">2</span>)
+<span class="kw">self</span>.assertGreater(count, <span class="num">0</span>)</pre>
+            </div>
+            <div class="code-block bad">
+              <div class="code-label bad">✗ Generic &amp; unhelpful on failure</div>
+              <pre><span class="kw">self</span>.assertTrue(result <span class="kw">is</span> <span class="kw">None</span>)
+<span class="kw">self</span>.assertTrue(<span class="st">"admin"</span> <span class="kw">in</span> roles)
+<span class="kw">self</span>.assertTrue(type(obj) == MyClass)
+<span class="kw">self</span>.assertTrue(abs(x - <span class="num">3.14</span>) < <span class="num">0.01</span>)
+<span class="kw">self</span>.assertTrue(count > <span class="num">0</span>)</pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="rule" id="assertion-table">
+          <div class="rule-header">
+            <span class="rule-tag tag-note">REF</span>
+            <h3>Common assertion quick reference</h3>
+          </div>
+          <table class="guide-table">
+            <thead>
+              <tr>
+                <th>Assertion</th>
+                <th>Use When</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>assertEqual(a, b)</td>
+                <td>Equality check</td>
+              </tr>
+              <tr>
+                <td>assertNotEqual(a, b)</td>
+                <td>Inequality check</td>
+              </tr>
+              <tr>
+                <td>assertTrue(x) / assertFalse(x)</td>
+                <td>Boolean truthiness only — not equality</td>
+              </tr>
+              <tr>
+                <td>assertIsNone(x) / assertIsNotNone(x)</td>
+                <td>None checks — never use assertEqual(x, None)</td>
+              </tr>
+              <tr>
+                <td>assertIn(a, b) / assertNotIn(a, b)</td>
+                <td>Membership in collection</td>
+              </tr>
+              <tr>
+                <td>assertRaises(exc)</td>
+                <td>Expected exception (use as context manager)</td>
+              </tr>
+              <tr>
+                <td>assertAlmostEqual(a, b)</td>
+                <td>Floating point comparisons</td>
+              </tr>
+              <tr>
+                <td>assertDictEqual / assertListEqual</td>
+                <td>Detailed diff output on failure</td>
+              </tr>
+              <tr>
+                <td>assertRegex(text, regex)</td>
+                <td>String pattern matching</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Add failure messages to ambiguous assertions</h3>
+          </div>
+          <div class="code-block good">
+            <div class="code-label good">✓ Good</div>
+            <pre><span class="kw">self</span>.assertEqual(
+    response.status_code, <span class="num">200</span>,
+    msg=<span class="st">f"Expected 200 OK but got </span>{response.status_code}<span class="st">: </span>{response.text}<span class="st">"</span>
+)</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- SETUP / TEARDOWN -->
+      <section class="section" id="setup">
+        <div class="section-number">// 04</div>
+        <h2>Setup &amp; Teardown</h2>
+        <div class="section-intro">Use the right lifecycle method for the right scope.</div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Understand the four lifecycle hooks</h3>
+          </div>
+          <table class="guide-table">
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Runs</th>
+                <th>Use For</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>setUpClass(cls)</td>
+                <td>Once before all tests in class</td>
+                <td>Expensive shared resources (DB connections, servers)</td>
+              </tr>
+              <tr>
+                <td>setUp(self)</td>
+                <td>Before each test</td>
+                <td>Fresh object instances, test-specific state</td>
+              </tr>
+              <tr>
+                <td>tearDown(self)</td>
+                <td>After each test</td>
+                <td>Cleaning up resources, resetting state</td>
+              </tr>
+              <tr>
+                <td>tearDownClass(cls)</td>
+                <td>Once after all tests in class</td>
+                <td>Shutting down shared resources</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="code-block neutral" style="margin-top:12px">
+            <div class="code-label neutral">// Example</div>
+            <pre><span class="kw">class</span> <span class="cl">TestOrderService</span>(unittest.TestCase):
+
+    <span class="de">@classmethod</span>
+    <span class="kw">def</span> <span class="fn">setUpClass</span>(<span class="kw">cls</span>):
+        <span class="kw">cls</span>.db = create_test_database()   <span class="cm"># expensive — do once</span>
+
+    <span class="kw">def</span> <span class="fn">setUp</span>(<span class="kw">self</span>):
+        <span class="kw">self</span>.service = OrderService(<span class="kw">self</span>.db)  <span class="cm"># fresh per test</span>
+        <span class="kw">self</span>.db.clear_orders()
+
+    <span class="kw">def</span> <span class="fn">tearDown</span>(<span class="kw">self</span>):
+        <span class="kw">self</span>.service.cleanup()
+
+    <span class="de">@classmethod</span>
+    <span class="kw">def</span> <span class="fn">tearDownClass</span>(<span class="kw">cls</span>):
+        <span class="kw">cls</span>.db.destroy()</pre>
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-avoid">AVOID</span>
+            <h3>Shared mutable state between tests</h3>
+          </div>
+          <p>Tests must be independent. A passing test suite should pass in any order. Never rely on test execution
+            order.</p>
+          <div class="callout">
+            <strong>Signal of a problem:</strong> if tests pass individually but fail when run together, you have shared
+            state leaking between tests.
+          </div>
+        </div>
+      </section>
+
+      <!-- MOCKING -->
+      <section class="section" id="mocking">
+        <div class="section-number">// 05</div>
+        <h2>Mocking</h2>
+        <div class="section-intro">Always prefer constructor injection. Use patch only when injection is not possible —
+          and only in the exact form shown.</div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Prefer constructor injection over patching</h3>
+          </div>
+          <p>If a class accepts its dependencies via <code style="color:var(--accent2)">__init__</code>, pass mocks
+            there. This is the cleanest, most type-safe approach — no string-based patching, no import-path fragility.
+          </p>
+          <div class="code-block good">
+            <div class="code-label good">✓ Inject — no patch needed</div>
+            <pre><span class="kw">class</span> <span class="cl">NotificationService</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(<span class="kw">self</span>, mailer: <span class="cl">Mailer</span>) -> <span class="kw">None</span>:
+        <span class="kw">self</span>.mailer = mailer
+
+<span class="cm"># In test setUp — just pass the mock in</span>
+<span class="kw">self</span>.mock_mailer = <span class="cl">Mailer</span>(MagicMock())   <span class="cm"># real type, mocked internals</span>
+<span class="kw">self</span>.service = <span class="cl">NotificationService</span>(mailer=<span class="kw">self</span>.mock_mailer)</pre>
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Use patch.object when injection is not possible</h3>
+          </div>
+          <p>When a dependency cannot be injected (e.g. a module-level function, a third-party object created
+            internally, or a class you don't own), use <code style="color:var(--accent2)">patch.object</code>. Always
+            use the <code style="color:var(--accent2)">.__name__</code> attribute to reference the function — never
+            hardcode the string name. This way a rename is caught immediately by the interpreter.</p>
+          <div class="code-pair">
+            <div class="code-block good">
+              <div class="code-label good">✓ patch.object with .__name__</div>
+              <pre><span class="kw">from</span> unittest.mock <span class="kw">import</span> patch, MagicMock
+
+<span class="kw">def</span> <span class="fn">test_connect_calls_broker</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="kw">with</span> patch.object(
+        <span class="cl">MqttClient</span>,
+        <span class="cl">MqttClient</span>.connect.<span class="fn">__name__</span>,
+    ) <span class="kw">as</span> mock_connect:
+        <span class="kw">self</span>.service.connect()
+
+        mock_connect.assert_called_once()</pre>
+            </div>
+            <div class="code-block bad">
+              <div class="code-label bad">✗ Hardcoded string — breaks on rename</div>
+              <pre><span class="kw">with</span> patch.object(
+    <span class="cl">MqttClient</span>,
+    <span class="st">"connect"</span>,   <span class="cm"># silent typo / rename risk</span>
+) <span class="kw">as</span> mock_connect:
+    <span class="kw">self</span>.service.connect()
+    mock_connect.assert_called_once()</pre>
+            </div>
+          </div>
+          <div class="callout">
+            <strong>patch.object only — never patch().</strong> The string-based
+            <code>patch("myapp.module.ClassName.method")</code> form is banned. It encodes the full import path as a
+            string literal, which silently breaks on any refactor.
+            <code>patch.object(TheClass, TheClass.method.__name__)</code> is the only permitted form.
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-avoid">AVOID</span>
+            <h3>Over-mocking implementation details</h3>
+          </div>
+          <p>Mock external dependencies (network, filesystem, time, 3rd-party SDKs), not every internal function call.
+            Mocking internals couples tests to implementation and makes refactoring painful.</p>
+        </div>
+      </section>
+
+      <!-- ORGANIZATION -->
+      <section class="section" id="organization">
+        <div class="section-number">// 06</div>
+        <h2>Organization</h2>
+        <div class="section-intro">Mirror your source tree. Keep tests close to the code they test.</div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Mirror source structure in test layout</h3>
+          </div>
+          <div class="code-block neutral">
+            <div class="code-label neutral">// Recommended layout</div>
+            <pre>myproject/
+├── src/
+│   ├── myapp/
+│   │   ├── services/
+│   │   │   ├── user_service.py
+│   │   │   └── payment_service.py
+│   │   └── utils/
+│   │       └── validators.py
+└── tests/
+    ├── unit/
+    │   ├── services/
+    │   │   ├── test_user_service.py
+    │   │   └── test_payment_service.py
+    │   └── utils/
+    │       └── test_validators.py
+    └── integration/
+        └── test_checkout_flow.py</pre>
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Group related tests with inner classes</h3>
+          </div>
+          <p>When a class under test has distinct behaviours, organise with inner test classes.</p>
+          <div class="code-block good">
+            <div class="code-label good">✓ Good</div>
+            <pre><span class="kw">class</span> <span class="cl">TestUserAuth</span>(unittest.TestCase):
+
+    <span class="kw">class</span> <span class="cl">WhenCredentialsAreValid</span>(unittest.TestCase):
+        <span class="kw">def</span> <span class="fn">test_returns_auth_token</span>(<span class="kw">self</span>): ...
+        <span class="kw">def</span> <span class="fn">test_logs_successful_login</span>(<span class="kw">self</span>): ...
+
+    <span class="kw">class</span> <span class="cl">WhenPasswordIsWrong</span>(unittest.TestCase):
+        <span class="kw">def</span> <span class="fn">test_raises_auth_error</span>(<span class="kw">self</span>): ...
+        <span class="kw">def</span> <span class="fn">test_increments_failed_attempts</span>(<span class="kw">self</span>): ...</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- EXCEPTIONS -->
+      <section class="section" id="exceptions">
+        <div class="section-number">// 07</div>
+        <h2>Testing Exceptions</h2>
+        <div class="section-intro">Always use assertRaises as a context manager to be precise about what raises.</div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Use assertRaises as a context manager</h3>
+          </div>
+          <div class="code-pair">
+            <div class="code-block good">
+              <div class="code-label good">✓ Precise — only the right line raises</div>
+              <pre><span class="kw">def</span> <span class="fn">test_divide_by_zero_raises_value_error</span>(<span class="kw">self</span>):
+    calc = Calculator()
+
+    <span class="kw">with self</span>.assertRaises(ValueError) <span class="kw">as</span> ctx:
+        calc.divide(<span class="num">10</span>, <span class="num">0</span>)
+
+    <span class="kw">self</span>.assertIn(<span class="st">"zero"</span>, str(ctx.exception))</pre>
+            </div>
+            <div class="code-block bad">
+              <div class="code-label bad">✗ Catches too broadly</div>
+              <pre><span class="kw">def</span> <span class="fn">test_divide_by_zero</span>(<span class="kw">self</span>):
+    <span class="kw">self</span>.assertRaises(
+        ValueError,
+        Calculator().divide,
+        <span class="num">10</span>, <span class="num">0</span>
+    )
+    <span class="cm"># Can't inspect exception message</span></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- COVERAGE -->
+      <section class="section" id="coverage">
+        <div class="section-number">// 08</div>
+        <h2>Coverage &amp; Quality</h2>
+        <div class="section-intro">Coverage measures what's exercised, not what's actually tested. Aim for meaningful
+          tests, not metrics.</div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-note">NOTE</span>
+            <h3>Coverage guidelines</h3>
+          </div>
+          <table class="guide-table">
+            <thead>
+              <tr>
+                <th>Level</th>
+                <th>Guidance</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Below 60%</td>
+                <td>Critical paths likely untested — increase coverage</td>
+              </tr>
+              <tr>
+                <td>60–80%</td>
+                <td>Acceptable for early-stage or prototype code</td>
+              </tr>
+              <tr>
+                <td>80–90%</td>
+                <td>Good target for most production codebases</td>
+              </tr>
+              <tr>
+                <td>90%+</td>
+                <td>High confidence; watch for diminishing returns on trivial code</td>
+              </tr>
+              <tr>
+                <td>100%</td>
+                <td>Rarely worth pursuing — test logic, not getters/setters</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="rule" id="checklist">
+          <div class="rule-header">
+            <span class="rule-tag tag-note">REF</span>
+            <h3>Pre-commit checklist</h3>
+          </div>
+          <div class="badge-row">
+            <span class="badge">✓ Test name describes scenario</span>
+            <span class="badge">✓ AAA structure visible</span>
+            <span class="badge">✓ One concern per test</span>
+            <span class="badge">✓ Specific assertion methods</span>
+            <span class="badge">✓ setUp resets state</span>
+            <span class="badge">✓ Externals are mocked</span>
+            <span class="badge">✓ Exceptions tested as context manager</span>
+            <span class="badge">✓ Tests pass in isolation</span>
+            <span class="badge">✓ No print() or debug code</span>
+            <span class="badge">✓ No time.sleep() in tests</span>
+            <span class="badge">✓ Extends TestCase or IsolatedAsyncioTestCase</span>
+            <span class="badge">✓ No private access (_x / __x)</span>
+            <span class="badge">✓ Direct dep: RealClass(MagicMock()) in setUp</span>
+            <span class="badge">✓ Asserted method replaced in test method only</span>
+            <span class="badge">✓ patch.object uses .__name__ — no string literals</span>
+            <span class="badge">✓ patch only used when constructor injection impossible</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- TESTCASE CLASSES -->
+      <section class="section" id="testcase">
+        <div class="section-number">// 09</div>
+        <h2>TestCase Base Classes</h2>
+        <div class="section-intro">Always subclass the right base. Never write bare test functions outside a TestCase.
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Use TestCase for synchronous code</h3>
+          </div>
+          <p>All test classes must subclass <code style="color:var(--accent2)">unittest.TestCase</code>. This gives you
+            the full assertion API, lifecycle hooks, and proper test discovery.</p>
+          <div class="code-block good">
+            <div class="code-label good">✓ Good</div>
+            <pre><span class="kw">import</span> unittest
+<span class="kw">from</span> myapp.services.user_service <span class="kw">import</span> UserService
+
+<span class="kw">class</span> <span class="cl">TestUserService</span>(unittest.<span class="cl">TestCase</span>):
+
+    <span class="kw">def</span> <span class="fn">setUp</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+        <span class="kw">self</span>.service = UserService()
+
+    <span class="kw">def</span> <span class="fn">test_get_user_by_id_returns_user</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+        result = <span class="kw">self</span>.service.get_user(<span class="num">1</span>)
+        <span class="kw">self</span>.assertIsNotNone(result)</pre>
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Use IsolatedAsyncioTestCase for async code</h3>
+          </div>
+          <p>For any <code style="color:var(--accent2)">async def</code> test, subclass <code
+              style="color:var(--accent2)">unittest.IsolatedAsyncioTestCase</code>. It manages its own event loop per
+            test, ensuring full isolation. Never mix sync and async test methods in the same class.</p>
+          <div class="code-pair">
+            <div class="code-block good">
+              <div class="code-label good">✓ Async tests</div>
+              <pre><span class="kw">import</span> unittest
+<span class="kw">from</span> myapp.services.order_service <span class="kw">import</span> OrderService
+
+<span class="kw">class</span> <span class="cl">TestOrderService</span>(
+    unittest.<span class="cl">IsolatedAsyncioTestCase</span>
+):
+    <span class="kw">async def</span> <span class="fn">asyncSetUp</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+        <span class="kw">self</span>.service = OrderService()
+
+    <span class="kw">async def</span> <span class="fn">test_place_order_returns_order_id</span>(
+        <span class="kw">self</span>
+    ) -> <span class="kw">None</span>:
+        result = <span class="kw">await self</span>.service.place_order(...)
+        <span class="kw">self</span>.assertIsNotNone(result.id)</pre>
+            </div>
+            <div class="code-block bad">
+              <div class="code-label bad">✗ Don't mix sync base with async tests</div>
+              <pre><span class="kw">class</span> <span class="cl">TestOrderService</span>(unittest.<span class="cl">TestCase</span>):
+    <span class="cm"># asyncio.run() in tests is fragile</span>
+    <span class="kw">def</span> <span class="fn">test_place_order</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+        result = asyncio.run(
+            <span class="kw">self</span>.service.place_order(...)
+        )
+        <span class="kw">self</span>.assertIsNotNone(result.id)</pre>
+            </div>
+          </div>
+          <div class="callout">
+            <strong>Lifecycle hooks for async:</strong> use <code>asyncSetUp</code> / <code>asyncTearDown</code>
+            alongside or instead of <code>setUp</code> / <code>tearDown</code> when setup itself needs to await
+            coroutines.
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-avoid">AVOID</span>
+            <h3>Bare test functions outside a class</h3>
+          </div>
+          <p>Standalone <code style="color:var(--accent2)">def test_*()</code> functions have no setUp/tearDown, no
+            assertion helpers, and weaker isolation. Always use a class.</p>
+        </div>
+      </section>
+
+      <!-- PRIVATE ACCESS -->
+      <section class="section" id="private">
+        <div class="section-number">// 10</div>
+        <h2>No Private Access in Tests</h2>
+        <div class="section-intro">Tests must only interact with the public API. Private internals are implementation
+          details.</div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-avoid">AVOID</span>
+            <h3>Accessing _protected or __private members</h3>
+          </div>
+          <p>Accessing private or protected attributes couples your tests to the internal implementation. Refactoring
+            internals — without changing public behaviour — should never break a test.</p>
+          <div class="code-pair">
+            <div class="code-block good">
+              <div class="code-label good">✓ Test via the public API</div>
+              <pre><span class="kw">def</span> <span class="fn">test_cache_hit_returns_cached_value</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="cm"># Call public method twice, observe public result</span>
+    first = <span class="kw">self</span>.service.get_user(<span class="num">1</span>)
+    second = <span class="kw">self</span>.service.get_user(<span class="num">1</span>)
+
+    <span class="kw">self</span>.assertEqual(first, second)
+    <span class="cm"># We proved caching works without touching _cache</span></pre>
+            </div>
+            <div class="code-block bad">
+              <div class="code-label bad">✗ Reaching into internals</div>
+              <pre><span class="kw">def</span> <span class="fn">test_cache_stores_result</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="kw">self</span>.service.get_user(<span class="num">1</span>)
+
+    <span class="cm"># Directly reading private state — fragile</span>
+    <span class="kw">self</span>.assertIn(<span class="num">1</span>, <span class="kw">self</span>.service.<span class="err">_cache</span>)
+    <span class="kw">self</span>.assertEqual(
+        <span class="kw">self</span>.service.<span class="err">__connection</span>.call_count, <span class="num">1</span>
+    )</pre>
+            </div>
+          </div>
+          <div class="callout">
+            <strong>If you feel the urge to access a private member in a test,</strong> it usually signals one of two
+            things: the behaviour you want to assert isn't exposed publicly (add a public method or property), or the
+            class is doing too much and should be split.
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-avoid">AVOID</span>
+            <h3>Patching private methods to control behaviour</h3>
+          </div>
+          <p>Similarly, never <code style="color:var(--accent2)">patch</code> a private method to change how the unit
+            under test behaves. If you need to control a code path, inject the dependency instead.</p>
+          <div class="code-pair">
+            <div class="code-block good">
+              <div class="code-label good">✓ Inject the dependency</div>
+              <pre><span class="kw">class</span> <span class="cl">ReportService</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(<span class="kw">self</span>, renderer: <span class="cl">Renderer</span>) -> <span class="kw">None</span>:
+        <span class="kw">self</span>.renderer = renderer
+
+<span class="cm"># In test — supply a mock via constructor</span>
+mock_renderer = create_autospec(<span class="cl">Renderer</span>)
+service = <span class="cl">ReportService</span>(renderer=mock_renderer)</pre>
+            </div>
+            <div class="code-block bad">
+              <div class="code-label bad">✗ Patching private internals</div>
+              <pre><span class="kw">with</span> patch.object(
+    <span class="kw">self</span>.service,
+    <span class="st">"<span class="err">_render_pdf</span>"</span>,   <span class="cm"># private — don't touch</span>
+    return_value=<span class="st">b"..."</span>
+):
+    result = <span class="kw">self</span>.service.generate_report()</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TYPE-SAFE MOCKS -->
+      <section class="section" id="type-safe-mocks">
+        <div class="section-number">// 11</div>
+        <h2>Type-Safe Mocking Patterns</h2>
+        <div class="section-intro">Preserve the type of every object in the test. Two patterns cover all cases.</div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Pattern A — 2nd-level dep: pass MagicMock() into the real constructor</h3>
+          </div>
+          <p>When your direct dependency (<code style="color:var(--accent2)">MqttClient</code>) has its own internal
+            dependency (e.g. a socket, config, or transport), pass a <code
+              style="color:var(--accent2)">MagicMock()</code> into that constructor. The result is a <strong>real,
+              typed</strong> <code style="color:var(--accent2)">MqttClient</code> instance — your class under test sees
+            the correct type — while the internals are fully stubbed out.</p>
+          <div class="code-block neutral" style="margin-bottom:12px">
+            <div class="code-label neutral">// Dependency chain</div>
+            <pre><span class="cm"># 1st level — injected directly into class under test</span>
+<span class="kw">class</span> <span class="cl">MqttClient</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(<span class="kw">self</span>, transport: <span class="cl">Transport</span>) -> <span class="kw">None</span>:
+        <span class="kw">self</span>.transport = transport   <span class="cm"># 2nd-level dep</span>
+    <span class="kw">def</span> <span class="fn">connect</span>(<span class="kw">self</span>) -> <span class="kw">None</span>: ...
+    <span class="kw">def</span> <span class="fn">publish</span>(<span class="kw">self</span>, topic: str, payload: str) -> <span class="kw">None</span>: ...
+
+<span class="cm"># Class under test</span>
+<span class="kw">class</span> <span class="cl">TelemetryService</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(<span class="kw">self</span>, mqtt: <span class="cl">MqttClient</span>) -> <span class="kw">None</span>:
+        <span class="kw">self</span>.mqtt = mqtt</pre>
+          </div>
+          <div class="code-block good">
+            <div class="code-label good">✓ Real MqttClient type, mocked 2nd-level dep</div>
+            <pre><span class="kw">def</span> <span class="fn">setUp</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="cm"># MagicMock() satisfies Transport — MqttClient stays a real typed object</span>
+    <span class="kw">self</span>.mqtt_client = <span class="cl">MqttClient</span>(MagicMock())
+
+    <span class="kw">self</span>.service = <span class="cl">TelemetryService</span>(mqtt=<span class="kw">self</span>.mqtt_client)</pre>
+          </div>
+          <div class="callout">
+            <strong>Why this matters:</strong> if you passed a plain <code>MagicMock()</code> as <code>mqtt</code>
+            directly, your class under test would silently accept any attribute access or method call, masking type
+            errors. With a real <code>MqttClient</code>, the type contract is enforced by the actual class.
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Pattern B — Replace individual methods on the typed object in the test</h3>
+          </div>
+          <p>When a specific test needs to control or assert a particular method call, assign a <code
+              style="color:var(--accent2)">MagicMock()</code> to that method directly on the already-typed object. The
+            object stays a real <code style="color:var(--accent2)">MqttClient</code> — only the one method is replaced.
+            This preserves typing while giving full control over that method's behaviour and call assertions.</p>
+          <div class="code-pair">
+            <div class="code-block good">
+              <div class="code-label good">✓ Replace only the method under test</div>
+              <pre><span class="kw">def</span> <span class="fn">test_connect_calls_mqtt_connect</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="cm"># Arrange — replace just this one method</span>
+    <span class="kw">self</span>.mqtt_client.connect = MagicMock()
+
+    <span class="cm"># Act</span>
+    <span class="kw">self</span>.service.connect()
+
+    <span class="cm"># Assert</span>
+    <span class="kw">self</span>.mqtt_client.connect.assert_called_once()
+
+<span class="kw">def</span> <span class="fn">test_send_telemetry_publishes_to_topic</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="cm"># Arrange — replace only the method this test asserts</span>
+    <span class="kw">self</span>.mqtt_client.publish = MagicMock()
+
+    <span class="cm"># Act</span>
+    <span class="kw">self</span>.service.send_telemetry(<span class="st">"temp"</span>, <span class="st">"42.0"</span>)
+
+    <span class="cm"># Assert</span>
+    <span class="kw">self</span>.mqtt_client.publish.assert_called_once_with(
+        topic=<span class="st">"sensors/temp"</span>, payload=<span class="st">"42.0"</span>
+    )</pre>
+            </div>
+            <div class="code-block bad">
+              <div class="code-label bad">✗ Replacing the whole object loses the type</div>
+              <pre><span class="kw">def</span> <span class="fn">test_connect_calls_mqtt_connect</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="cm"># Replaces MqttClient with a typeless MagicMock</span>
+    <span class="kw">self</span>.service.mqtt = MagicMock()
+
+    <span class="kw">self</span>.service.connect()
+
+    <span class="cm"># Passes even if method signature changes</span>
+    <span class="kw">self</span>.service.mqtt.connect.assert_called_once()</pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-note">NOTE</span>
+            <h3>Decision tree — which pattern to use?</h3>
+          </div>
+          <table class="guide-table">
+            <thead>
+              <tr>
+                <th>Situation</th>
+                <th>Pattern</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Direct dep has its own constructor dep (2nd level)</td>
+                <td>A — <code>RealClass(MagicMock())</code> in setUp</td>
+              </tr>
+              <tr>
+                <td>Need to assert/control a specific method call</td>
+                <td>B — <code>self.obj.method = MagicMock()</code> in test</td>
+              </tr>
+              <tr>
+                <td>Cannot inject at all (internal creation, 3rd party)</td>
+                <td><code>patch.object(Cls, Cls.method.__name__)</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- MOCK PLACEMENT -->
+      <section class="section" id="mock-placement">
+        <div class="section-number">// 12</div>
+        <h2>Mock Placement: setUp vs Test Method</h2>
+        <div class="section-intro">Where you set up a mock signals its role. Dependencies that keep code running belong
+          in setUp. The method you are asserting is configured in the test itself.</div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Create objects and background mocks in setUp</h3>
+          </div>
+          <p>Build the real typed objects (with <code style="color:var(--accent2)">MagicMock()</code> for 2nd-level
+            deps) in <code style="color:var(--accent2)">setUp</code>. Also configure any method stubs needed to keep the
+            code running in tests that don't care about those methods.</p>
+          <div class="code-block good">
+            <div class="code-label good">✓ setUp — construction and background stubs only</div>
+            <pre><span class="kw">def</span> <span class="fn">setUp</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="cm"># Real typed object — MagicMock() satisfies the 2nd-level Transport dep</span>
+    <span class="kw">self</span>.mqtt_client = <span class="cl">MqttClient</span>(MagicMock())
+
+    <span class="kw">self</span>.service = <span class="cl">TelemetryService</span>(mqtt=<span class="kw">self</span>.mqtt_client)</pre>
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Replace only the asserted method inside the test method</h3>
+          </div>
+          <p>In each test that asserts a specific method call, replace that single method with a <code
+              style="color:var(--accent2)">MagicMock()</code> at the top of the test's Arrange block. This makes the
+            test self-contained — the reader sees exactly what is being controlled and verified without having to look
+            elsewhere.</p>
+          <div class="code-block good">
+            <div class="code-label good">✓ Method-under-test replaced in the test itself</div>
+            <pre><span class="kw">def</span> <span class="fn">test_connect_calls_mqtt_connect</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="cm"># Arrange — replace only the method this test asserts</span>
+    <span class="kw">self</span>.mqtt_client.connect = MagicMock()
+
+    <span class="cm"># Act</span>
+    <span class="kw">self</span>.service.connect()
+
+    <span class="cm"># Assert</span>
+    <span class="kw">self</span>.mqtt_client.connect.assert_called_once()
+
+
+<span class="kw">def</span> <span class="fn">test_send_telemetry_publishes_correct_topic</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="cm"># Arrange — different method, same object</span>
+    <span class="kw">self</span>.mqtt_client.publish = MagicMock()
+
+    <span class="cm"># Act</span>
+    <span class="kw">self</span>.service.send_telemetry(<span class="st">"temp"</span>, <span class="st">"42.0"</span>)
+
+    <span class="cm"># Assert</span>
+    <span class="kw">self</span>.mqtt_client.publish.assert_called_once_with(
+        topic=<span class="st">"sensors/temp"</span>, payload=<span class="st">"42.0"</span>
+    )</pre>
+          </div>
+
+          <div class="code-block bad" style="margin-top:12px">
+            <div class="code-label bad">✗ Asserted method replaced in setUp — intent is hidden</div>
+            <pre><span class="kw">def</span> <span class="fn">setUp</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="kw">self</span>.mqtt_client = <span class="cl">MqttClient</span>(MagicMock())
+    <span class="cm"># Bad: replacing methods we will later assert on</span>
+    <span class="kw">self</span>.mqtt_client.connect = MagicMock()
+    <span class="kw">self</span>.mqtt_client.publish = MagicMock()
+    <span class="kw">self</span>.service = <span class="cl">TelemetryService</span>(mqtt=<span class="kw">self</span>.mqtt_client)
+
+<span class="kw">def</span> <span class="fn">test_connect_calls_mqtt_connect</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="kw">self</span>.service.connect()
+    <span class="cm"># Reader must scroll to setUp to understand what mock_connect is</span>
+    <span class="kw">self</span>.mqtt_client.connect.assert_called_once()</pre>
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-note">NOTE</span>
+            <h3>Summary — what goes where</h3>
+          </div>
+          <table class="guide-table">
+            <thead>
+              <tr>
+                <th>What</th>
+                <th>Where</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Real typed objects (<code>RealClass(MagicMock())</code>)</td>
+                <td>setUp</td>
+              </tr>
+              <tr>
+                <td>Class under test construction</td>
+                <td>setUp</td>
+              </tr>
+              <tr>
+                <td>Background method stubs (not asserted)</td>
+                <td>setUp</td>
+              </tr>
+              <tr>
+                <td>Method replacement for the method being asserted</td>
+                <td>Test method — Arrange block</td>
+              </tr>
+              <tr>
+                <td>patch.object (when injection not possible)</td>
+                <td>Test method — as context manager around Act</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- FULL EXAMPLE -->
+      <section class="section" id="full-example">
+        <div class="section-number">// 13</div>
+        <h2>Full Example</h2>
+        <div class="section-intro">A complete test file applying every rule in this guide — with a copyable rules
+          summary and an annotated walk-through.</div>
+
+        <!-- COPYABLE RULES BLOCK -->
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-note">COPY</span>
+            <h3>Rules quick-reference — paste into your team wiki or PR template</h3>
+          </div>
+          <div class="code-block neutral" style="position:relative;">
+            <div class="code-label neutral" style="display:flex;justify-content:space-between;align-items:center;">
+              <span>// Python unittest rules</span>
+              <button onclick="
+              const el = this.closest('.code-block').querySelector('pre');
+              navigator.clipboard.writeText(el.innerText);
+              this.textContent = 'Copied!';
+              setTimeout(()=>this.textContent='Copy',1800);
+            " style="
+              font-family:'IBM Plex Mono',monospace;font-size:10px;
+              background:rgba(240,192,64,0.12);border:1px solid rgba(240,192,64,0.3);
+              color:var(--accent);padding:3px 10px;border-radius:3px;cursor:pointer;
+              letter-spacing:0.1em;text-transform:uppercase;
+            ">Copy</button>
+            </div>
+            <pre># ── Class structure ────────────────────────────────────────────────
+# 1. Always subclass unittest.TestCase (sync) or
+#    unittest.IsolatedAsyncioTestCase (async).
+#    Class name: Test&lt;OriginalClass&gt;  e.g. TestMqttClient, TestOrderService
+# 2. Never write bare test functions outside a class.
+
+# ── Public API only ─────────────────────────────────────────────────
+# 3. Never access _protected or __private members in tests.
+# 4. Never patch private methods. Inject the dependency instead.
+
+# ── Mocking strategy ────────────────────────────────────────────────
+# 5. Prefer constructor injection over patching.
+# 6. For 2nd-level deps: pass MagicMock() into the real constructor
+#    so the outer object stays fully typed.
+#    e.g.  self.mqtt = MqttClient(MagicMock())
+# 7. To assert a specific method call: replace only that method on
+#    the typed object — inside the test method, not setUp.
+#    e.g.  self.mqtt.connect = MagicMock()
+# 8. Use patch.object ONLY when constructor injection is impossible.
+#    Mandatory form: patch.object(TheClass, TheClass.method.__name__)
+#    Never use the string-path form: patch("a.b.c.method")
+
+# ── Mock placement ──────────────────────────────────────────────────
+# 9.  setUp   → build typed objects + background stubs (not asserted)
+# 10. test    → replace only the one method being asserted (Arrange)
+
+# ── Test structure ──────────────────────────────────────────────────
+# 11. Follow Arrange → Act → Assert in every test.
+# 12. One logical behaviour per test.
+# 13. Use the most specific assertion method available.
+# 14. Use assertRaises as a context manager for exception tests.</pre>
+          </div>
+        </div>
+
+        <!-- ANNOTATED EXAMPLE -->
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">EXAMPLE</span>
+            <h3>Annotated test file</h3>
+          </div>
+          <p>The scenario: a <code style="color:var(--accent2)">TelemetryService</code> depends on an <code
+              style="color:var(--accent2)">MqttClient</code>, which in turn takes a <code
+              style="color:var(--accent2)">Transport</code>. We test three behaviours.</p>
+
+          <div class="code-block good">
+            <div class="code-label good">✓ telemetry_service_test.py — full file</div>
+            <pre><span class="kw">import</span> unittest
+<span class="kw">from</span> unittest.mock <span class="kw">import</span> MagicMock, patch
+
+<span class="kw">from</span> myapp.mqtt.client <span class="kw">import</span> MqttClient        <span class="cm"># 1st-level dep</span>
+<span class="kw">from</span> myapp.telemetry.service <span class="kw">import</span> TelemetryService
+
+
+<span class="de">                                              </span><span class="cm"># ① subclass TestCase</span>
+<span class="kw">class</span> <span class="cl">TestTelemetryService</span>(unittest.<span class="cl">TestCase</span>):
+
+    <span class="kw">def</span> <span class="fn">setUp</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+        <span class="cm"># ② Pattern A — real typed MqttClient,</span>
+        <span class="cm">#   MagicMock() satisfies its 2nd-level Transport dep</span>
+        <span class="kw">self</span>.mqtt_client = <span class="cl">MqttClient</span>(MagicMock())
+
+        <span class="cm"># ③ Inject the typed object — no patching needed</span>
+        <span class="kw">self</span>.service = <span class="cl">TelemetryService</span>(mqtt=<span class="kw">self</span>.mqtt_client)
+
+    <span class="cm"># ────────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">def</span> <span class="fn">test_connect_calls_mqtt_connect</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+        <span class="cm"># ④ Pattern B — replace only the method this test asserts</span>
+        <span class="kw">self</span>.mqtt_client.connect = MagicMock()       <span class="cm"># Arrange</span>
+
+        <span class="kw">self</span>.service.connect()                       <span class="cm"># Act</span>
+
+        <span class="kw">self</span>.mqtt_client.connect.assert_called_once() <span class="cm"># Assert</span>
+
+    <span class="cm"># ────────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">def</span> <span class="fn">test_send_telemetry_publishes_to_correct_topic</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+        <span class="cm"># ④ Different method — same pattern, stays in this test</span>
+        <span class="kw">self</span>.mqtt_client.publish = MagicMock()       <span class="cm"># Arrange</span>
+
+        <span class="kw">self</span>.service.send_telemetry(<span class="st">"temp"</span>, <span class="st">"42.0"</span>) <span class="cm"># Act</span>
+
+        <span class="kw">self</span>.mqtt_client.publish.assert_called_once_with(  <span class="cm"># Assert</span>
+            topic=<span class="st">"sensors/temp"</span>,
+            payload=<span class="st">"42.0"</span>,
+        )
+
+    <span class="cm"># ────────────────────────────────────────────────────────────────</span>
+
+    <span class="kw">def</span> <span class="fn">test_connect_without_broker_raises_connection_error</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+        <span class="cm"># ⑤ patch.object — only because MqttClient.connect</span>
+        <span class="cm">#   internally creates the socket; can't inject it</span>
+        <span class="kw">with</span> patch.object(                           <span class="cm"># Arrange</span>
+            <span class="cl">MqttClient</span>,
+            <span class="cl">MqttClient</span>.connect.<span class="fn">__name__</span>,           <span class="cm"># ⑥ no string literal</span>
+            side_effect=ConnectionError(<span class="st">"unreachable"</span>),
+        ):
+            <span class="kw">with self</span>.assertRaises(ConnectionError): <span class="cm"># Assert wraps Act</span>
+                <span class="kw">self</span>.service.connect()               <span class="cm"># Act
+
+
+</span><span class="kw">if</span> __name__ == <span class="st">"__main__"</span>:
+    unittest.main()</pre>
+          </div>
+
+          <!-- ANNOTATION LEGEND -->
+          <div style="margin-top:20px;display:grid;gap:10px;">
+
+            <div
+              style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
+              <span
+                style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--accent);min-width:24px;font-weight:700;">①</span>
+              <span style="font-size:13px;color:#94a3b8;font-family:'IBM Plex Mono',monospace;">Subclasses <code
+                  style="color:var(--accent2)">unittest.TestCase</code> — all sync tests live here. Async counterpart:
+                <code style="color:var(--accent2)">IsolatedAsyncioTestCase</code>.</span>
+            </div>
+
+            <div
+              style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
+              <span
+                style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--accent);min-width:24px;font-weight:700;">②</span>
+              <span style="font-size:13px;color:#94a3b8;font-family:'IBM Plex Mono',monospace;"><strong
+                  style="color:var(--text)">Pattern A</strong> — 2nd-level dep. <code
+                  style="color:var(--accent2)">MqttClient(MagicMock())</code> keeps the object fully typed. <code
+                  style="color:var(--accent2)">MagicMock()</code> satisfies <code
+                  style="color:var(--accent2)">Transport</code> so the constructor doesn't fail.</span>
+            </div>
+
+            <div
+              style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
+              <span
+                style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--accent);min-width:24px;font-weight:700;">③</span>
+              <span style="font-size:13px;color:#94a3b8;font-family:'IBM Plex Mono',monospace;">Constructor injection —
+                no <code style="color:var(--accent2)">patch</code> needed. <code
+                  style="color:var(--accent2)">TelemetryService</code> receives the real, typed <code
+                  style="color:var(--accent2)">MqttClient</code>.</span>
+            </div>
+
+            <div
+              style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
+              <span
+                style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--accent);min-width:24px;font-weight:700;">④</span>
+              <span style="font-size:13px;color:#94a3b8;font-family:'IBM Plex Mono',monospace;"><strong
+                  style="color:var(--text)">Pattern B</strong> — replace only the one method under assertion, inside the
+                test. The object is still a real <code style="color:var(--accent2)">MqttClient</code>. Each test
+                replaces its own method independently.</span>
+            </div>
+
+            <div
+              style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
+              <span
+                style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--accent);min-width:24px;font-weight:700;">⑤</span>
+              <span style="font-size:13px;color:#94a3b8;font-family:'IBM Plex Mono',monospace;"><code
+                  style="color:var(--accent2)">patch.object</code> used only because the socket is created internally —
+                injection is not possible here.</span>
+            </div>
+
+            <div
+              style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
+              <span
+                style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--accent);min-width:24px;font-weight:700;">⑥</span>
+              <span style="font-size:13px;color:#94a3b8;font-family:'IBM Plex Mono',monospace;"><code
+                  style="color:var(--accent2)">MqttClient.connect.__name__</code> instead of the string <code
+                  style="color:var(--red)">"connect"</code> — a rename is caught by the interpreter immediately.</span>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- PARAMETERIZED TESTS -->
+      <section class="section" id="parameterized">
+        <div class="section-number">// 14</div>
+        <h2>Parameterized Tests</h2>
+        <div class="section-intro">When the same logic must run against multiple inputs, parameterize — never copy-paste
+          test methods.</div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-avoid">AVOID</span>
+            <h3>Duplicating test methods for different inputs</h3>
+          </div>
+          <p>Copy-pasted tests that differ only in their input values bloat the file, are easy to forget when adding a
+            new case, and hide the fact that they are testing the same behaviour.</p>
+          <div class="code-block bad">
+            <div class="code-label bad">✗ Repeated logic — hard to maintain</div>
+            <pre><span class="kw">def</span> <span class="fn">test_validate_email_accepts_simple_address</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="kw">self</span>.assertTrue(validate_email(<span class="st">"user@example.com"</span>))
+
+<span class="kw">def</span> <span class="fn">test_validate_email_accepts_subdomain</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="kw">self</span>.assertTrue(validate_email(<span class="st">"user@mail.example.com"</span>))
+
+<span class="kw">def</span> <span class="fn">test_validate_email_rejects_missing_at</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="kw">self</span>.assertFalse(validate_email(<span class="st">"userexample.com"</span>))
+
+<span class="kw">def</span> <span class="fn">test_validate_email_rejects_empty_string</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    <span class="kw">self</span>.assertFalse(validate_email(<span class="st">""</span>))</pre>
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Option A — subTest() &nbsp;<span style="font-weight:400;color:var(--muted);font-size:0.85em">(stdlib, no
+                extra dependency)</span></h3>
+          </div>
+          <p><code style="color:var(--accent2)">self.subTest()</code> is built into <code
+              style="color:var(--accent2)">unittest.TestCase</code>. Each iteration is reported independently — a
+            failure in one case does not stop the others from running. Use this when you want zero extra dependencies.
+          </p>
+          <div class="code-block good">
+            <div class="code-label good">✓ subTest — stdlib, all cases always run</div>
+            <pre><span class="kw">def</span> <span class="fn">test_validate_email_accepts_valid_addresses</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    valid_cases = [
+        (<span class="st">"simple"</span>,    <span class="st">"user@example.com"</span>),
+        (<span class="st">"subdomain"</span>, <span class="st">"user@mail.example.com"</span>),
+        (<span class="st">"plus-tag"</span>,  <span class="st">"user+tag@example.com"</span>),
+    ]
+    <span class="kw">for</span> label, email <span class="kw">in</span> valid_cases:
+        <span class="kw">with self</span>.subTest(case=label, email=email):
+            <span class="kw">self</span>.assertTrue(validate_email(email))
+
+<span class="kw">def</span> <span class="fn">test_validate_email_rejects_invalid_addresses</span>(<span class="kw">self</span>) -> <span class="kw">None</span>:
+    invalid_cases = [
+        (<span class="st">"no-at"</span>,    <span class="st">"userexample.com"</span>),
+        (<span class="st">"empty"</span>,    <span class="st">""</span>),
+        (<span class="st">"no-domain"</span>, <span class="st">"user@"</span>),
+    ]
+    <span class="kw">for</span> label, email <span class="kw">in</span> invalid_cases:
+        <span class="kw">with self</span>.subTest(case=label, email=email):
+            <span class="kw">self</span>.assertFalse(validate_email(email))</pre>
+          </div>
+          <div class="callout">
+            <strong>Failure output:</strong> when a subTest case fails, the label and input values appear in the failure
+            message — e.g.
+            <code>FAIL: test_validate_email_rejects_invalid_addresses (case='no-at', email='userexample.com')</code> —
+            so you know exactly which case broke.
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-do">DO</span>
+            <h3>Option B — @parameterized.expand &nbsp;<span
+                style="font-weight:400;color:var(--muted);font-size:0.85em">(3rd-party, generates named test
+                methods)</span></h3>
+          </div>
+          <p>The <code style="color:var(--accent2)">parameterized</code> library expands each case into its own named
+            test method at class-creation time. This means each case appears as a separate entry in test runners, CI
+            reports, and IDE test trees — exactly like a hand-written test method would.</p>
+          <div class="code-block neutral" style="margin-bottom:12px">
+            <div class="code-label neutral">// Install</div>
+            <pre>pip install parameterized</pre>
+          </div>
+          <div class="code-block good">
+            <div class="code-label good">✓ @parameterized.expand — each case is a distinct test method</div>
+            <pre><span class="kw">from</span> parameterized <span class="kw">import</span> parameterized
+
+<span class="kw">class</span> <span class="cl">TestEmailValidator</span>(unittest.<span class="cl">TestCase</span>):
+
+    <span class="de">@parameterized.expand</span>([
+        (<span class="st">"simple_address"</span>,  <span class="st">"user@example.com"</span>,       <span class="kw">True</span>),
+        (<span class="st">"subdomain"</span>,       <span class="st">"user@mail.example.com"</span>,   <span class="kw">True</span>),
+        (<span class="st">"plus_tag"</span>,        <span class="st">"user+tag@example.com"</span>,    <span class="kw">True</span>),
+        (<span class="st">"no_at_sign"</span>,      <span class="st">"userexample.com"</span>,         <span class="kw">False</span>),
+        (<span class="st">"empty_string"</span>,    <span class="st">""</span>,                         <span class="kw">False</span>),
+        (<span class="st">"no_domain"</span>,       <span class="st">"user@"</span>,                   <span class="kw">False</span>),
+    ])
+    <span class="kw">def</span> <span class="fn">test_validate_email</span>(<span class="kw">self</span>, _name: str, email: str, expected: bool) -> <span class="kw">None</span>:
+        <span class="kw">self</span>.assertEqual(validate_email(email), expected)</pre>
+          </div>
+          <div class="callout">
+            <strong>Generated method names:</strong> the decorator produces methods named e.g.
+            <code>test_validate_email_0_simple_address</code>, <code>test_validate_email_3_no_at_sign</code> — each
+            individually runnable, filterable, and visible in CI. The first tuple element is the human-readable label;
+            keep it a valid Python identifier (underscores, no spaces).
+          </div>
+        </div>
+
+        <div class="rule">
+          <div class="rule-header">
+            <span class="rule-tag tag-note">NOTE</span>
+            <h3>When to use which</h3>
+          </div>
+          <table class="guide-table">
+            <thead>
+              <tr>
+                <th>Need</th>
+                <th>Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Zero extra dependencies</td>
+                <td><code>subTest()</code></td>
+              </tr>
+              <tr>
+                <td>Each case visible as its own test in CI / IDE</td>
+                <td><code>@parameterized.expand</code></td>
+              </tr>
+              <tr>
+                <td>Run a single failing case in isolation</td>
+                <td><code>@parameterized.expand</code> (method has a name)</td>
+              </tr>
+              <tr>
+                <td>Quick boundary-value check inside one test</td>
+                <td><code>subTest()</code></td>
+              </tr>
+              <tr>
+                <td>Large input matrix shared across the team</td>
+                <td><code>@parameterized.expand</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <footer>
+    <span>Python unittest Style Guide</span>
+    <span>v1.5 — 2026</span>
+  </footer>
+
+</body>
+
+</html>

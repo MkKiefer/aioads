@@ -77,7 +77,7 @@ class AdsAddNotificationCommand(ICommand[AdsAddNotificationResponse]):
     Ads command to create a ads notification (subscription to a remote resource)
     """
 
-    SERIALIZE_STRUCT_DEF: Final[Struct] = Struct("<IIIIIII16s")
+    SERIALIZE_STRUCT_DEF: Final[Struct] = Struct("<IIIIII16s")
 
     def __init__(
         self,
