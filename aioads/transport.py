@@ -402,10 +402,23 @@ class AdsTcpTransport(BaseTransport, ITransport):
 
         reader, _ = stream
         while True:
-            # Read AmsTcpHeader
-            tcp_header_bytes = await reader.readexactly(AmsTcpHeader.FIXED_SIZE)
-            tcp_header = AmsTcpHeader.deserialize(tcp_header_bytes)
-            payload_bytes = await reader.readexactly(tcp_header.length)
+            try:
+                # Read AmsTcpHeader
+                tcp_header_bytes = await reader.readexactly(AmsTcpHeader.FIXED_SIZE)
+                tcp_header = AmsTcpHeader.deserialize(tcp_header_bytes)
+                payload_bytes = await reader.readexactly(tcp_header.length)
+            except asyncio.IncompleteReadError as e:
+                # readexactly hit EOF: the peer's recv() returned 0 bytes,
+                # i.e. the remote closed the connection. An empty partial is an
+                # orderly close on a message boundary; a non-empty partial means
+                # we were cut off mid-message. Either way the stream is dead, so
+                # raise a clear ConnectionError for the supervisor to reconnect.
+                if e.partial:
+                    raise ConnectionError(
+                        f"Connection closed mid-message: received "
+                        f"{len(e.partial)} of {e.expected} expected bytes"
+                    ) from e
+                raise ConnectionError("Connection closed by remote") from e
 
             ams_message_stream = AdsStream(memoryview(payload_bytes))
             ams_header = AmsHeader.deserialize(ams_message_stream)
