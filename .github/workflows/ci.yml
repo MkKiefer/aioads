@@ -34,7 +34,7 @@ jobs:
           cache: true
 
       - name: Install dependencies
-        run: pdm install --dev
+        run: pdm install
 
       - name: Lint
         run: pdm run lint
