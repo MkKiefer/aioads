@@ -12,7 +12,7 @@ config:
         rowHeight: 40
         bitWidth: 80
         bitsPerRow: 8
-        showBits: ture
+        showBits: true
 ---
 packet
 +4: "1 - idx group (4 bytes)"
@@ -37,7 +37,7 @@ config:
         rowHeight: 40
         bitWidth: 80
         bitsPerRow: 8
-        showBits: ture
+        showBits: true
 ---
 packet
 +4: "1 - error code (4 bytes)"

@@ -11,7 +11,7 @@ config:
         rowHeight: 45
         bitWidth: 32
         bitsPerRow: 8
-        showBits: ture
+        showBits: true
 ---
 packet
 +6: "AMSNetId (6 bytes)"

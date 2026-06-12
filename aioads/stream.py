@@ -47,15 +47,28 @@ class AdsStream:
             raise ValueError("Position out of bounds")
         self._pos = pos
 
+    def _checked_slice(self, size: int) -> memoryview:
+        """
+        Return a view of the next ``size`` bytes and advance the position.
+        Raises instead of silently returning short data on truncated input.
+        """
+        end = self._pos + size
+        if size < 0 or end > self._length:
+            raise ValueError(
+                f"Read of {size} bytes at position {self._pos} exceeds "
+                f"stream length {self._length}"
+            )
+        chunk = self._data[self._pos:end]
+        self._pos = end
+        return chunk
+
     def read(self, size: int) -> bytes:
         """
         Reads a specified number of bytes from the stream and advances the position.
-        This will allocate a new bytes object, so it should be used for small reads. 
+        This will allocate a new bytes object, so it should be used for small reads.
         For larger reads, consider using read_struct or read_struct_as to avoid unnecessary copying.
         """
-        chunk = self._data[self._pos:self._pos + size]
-        self._pos += size
-        return chunk.tobytes()
+        return self._checked_slice(size).tobytes()
 
     def read_view(self, size: int) -> memoryview:
         """
@@ -63,19 +76,14 @@ class AdsStream:
         This is useful for large reads where you want to avoid copying the data.
         The returned memoryview will be a slice of the original data, so it will not allocate new memory.
         """
-        chunk = self._data[self._pos:self._pos + size]
-        self._pos += size
-        return chunk
+        return self._checked_slice(size)
 
     def read_struct(self, struct: Struct):
         """
         Read a struct from the stream and return the unpacked values as a tuple.
         The struct can be provided as a format string or as a Struct object.
         """
-
-        view = self._data[self._pos:self._pos + struct.size]
-        self._pos += struct.size
-        return struct.unpack(view)
+        return struct.unpack(self._checked_slice(struct.size))
 
     def sub_stream(self, length: int) -> "AdsStream":
         """
