@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import AsyncMock
 
 from aioads.ads_error_codes import AdsErrorCode
+from aioads.ams_service_port import AmsServicePort
 from aioads.commands.ads_write import AdsWriteResponse
 from aioads.functions.ads_enable_route import AdsEnableRoute, RouteSwitch
 from tests.builders import (
@@ -27,7 +28,9 @@ class TestAdsEnableRoute(unittest.IsolatedAsyncioTestCase):
 
     def test_init_overrides_port_to_system_service(self) -> None:
         # Assert
-        self.assertEqual(self.function.modified_address.port, AdsEnableRoute.SYSTEM_SERVICE_PORT)
+        self.assertEqual(
+            self.function.modified_address.port, AmsServicePort.SYSTEM_SERVICE
+        )
 
     def test_init_preserves_target_net_id(self) -> None:
         # Assert
@@ -43,7 +46,10 @@ class TestAdsEnableRoute(unittest.IsolatedAsyncioTestCase):
     async def test_execute_uses_switch_value_as_index_offset(self) -> None:
         # Arrange
         self.transport.request = AsyncMock(
-            return_value=(make_ams_header(), make_stream(AdsWriteResponse(AdsErrorCode(0)).serialize()))
+            return_value=(
+                make_ams_header(),
+                make_stream(AdsWriteResponse(AdsErrorCode(0)).serialize()),
+            )
         )
 
         # Act
@@ -57,7 +63,10 @@ class TestAdsEnableRoute(unittest.IsolatedAsyncioTestCase):
     async def test_execute_returns_write_response(self) -> None:
         # Arrange
         self.transport.request = AsyncMock(
-            return_value=(make_ams_header(), make_stream(AdsWriteResponse(AdsErrorCode(0)).serialize()))
+            return_value=(
+                make_ams_header(),
+                make_stream(AdsWriteResponse(AdsErrorCode(0)).serialize()),
+            )
         )
 
         # Act
