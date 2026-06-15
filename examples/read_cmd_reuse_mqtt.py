@@ -9,6 +9,7 @@ import logging
 
 from aioads.ads_client import AdsClient
 from aioads.ams_address import AmsAddress
+from aioads.ams_service_port import AmsServicePort
 from aioads.commands.ads_read import AdsReadCommand
 from aioads.transport import AdsAioMqttTransport
 
@@ -20,11 +21,11 @@ async def main():
         src=AmsAddress(net_id="192.168.178.12.1.1", port=1234),
         name="AdsClient",
         url="mqtt://127.0.0.1:1883",
-        prefix="ads"
+        prefix="ads",
     )
     client = AdsClient.create_from_transport(
-        dst=AmsAddress(net_id="192.168.178.11.1.1", port=851),
-        transport=transport
+        dst=AmsAddress(net_id="192.168.178.11.1.1", port=AmsServicePort.TC3_RUNTIME_1),
+        transport=transport,
     )
     try:
 
@@ -43,9 +44,7 @@ async def main():
 
             _, stream = await read_command.request()
             symbol_value = client.parser.parse(
-                symbol_info.data_type,
-                type_name=symbol_info.type_name,
-                raw_data=stream
+                symbol_info.data_type, type_name=symbol_info.type_name, raw_data=stream
             )
 
             cycle_cnt = symbol_value["CycleCount"]
@@ -53,9 +52,7 @@ async def main():
             cycle_time = symbol_value["CycleTime"]
             cycle_cnt_dif = cycle_cnt - last_cycle_cnt
             plc_time = cycle_cnt_dif * cycle_time / 10000  # Convert to ms
-            print(
-                f"Cycles changed: {cycle_cnt_dif} | Time changed: {plc_time}ms"
-            )
+            print(f"Cycles changed: {cycle_cnt_dif} | Time changed: {plc_time}ms")
             last_cycle_cnt = cycle_cnt
 
     finally:
