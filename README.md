@@ -35,33 +35,34 @@ pip install aioads[aiomqtt]
 ```python
 import asyncio
 from aioads import AdsClient, AmsAddress
+from aioads.ams_service_port import AmsServicePort
 
 async def main():
     # Create client
     client = AdsClient.create_tcp(
         src=AmsAddress(net_id="192.168.1.100.1.1", port=1234),
-        dst=AmsAddress(net_id="192.168.1.200.1.1", port=851),
+        dst=AmsAddress(net_id="192.168.1.200.1.1", port=AmsServicePort.TC3_RUNTIME_1),
         ip="192.168.1.200",
         port=48898,
     )
-    
+
     try:
         # Connect to PLC
         await client.connect()
-        
+
         # Read device state
         state = await client.read_state()
         print(f"PLC State: {state.ads_state.name}")
-        
+
         # Read single symbol
         value = await client.read_symbol_by_name("MAIN.MyVariable")
         print(f"Value: {value}")
-        
+
         # Read multiple symbols efficiently
         symbols = ["MAIN.Var1", "MAIN.Var2", "MAIN.Var3"]
         values = await client.read_symbols_by_names(symbols)
         print(f"Values: {values}")
-        
+
     finally:
         await client.disconnect()
 
@@ -107,7 +108,7 @@ Efficiently read multiple symbols in a single operation:
 # Prepare symbol list
 symbols_to_read = {
     "MAIN.Temperature",
-    "MAIN.Pressure", 
+    "MAIN.Pressure",
     "MAIN.FlowRate",
     "MAIN.Status.Running",
     "MAIN.Recipe.CurrentStep"
@@ -177,7 +178,7 @@ async def read_diagnostics(client, diag_symbols):
 async def main():
     client = AdsClient.create_tcp(...)
     await client.connect()
-    
+
     try:
         # Run multiple concurrent tasks
         async with asyncio.TaskGroup() as tg:
@@ -209,13 +210,11 @@ Full support for TwinCAT data types:
 - **Complex Types**: Custom user-defined types
 - **Arrays**: Multi-dimensional arrays with proper indexing
 
-
 ## Requirements
 
 - Python 3.11+
 - asyncio
 - aiomqtt (optional)
-
 
 ## Disclaimer
 
@@ -237,7 +236,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ### Symbol Access
 
 1. **PLC State**: Ensure PLC is in RUN mode for symbol access
-
 
 ## Contributing guidelines
 

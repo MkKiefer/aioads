@@ -3,7 +3,7 @@ import logging
 
 from aioads.ads_client import AdsClient
 from aioads.ams_address import AmsAddress
-
+from aioads.ams_port import AmsServicePort
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.DEBUG)
 async def main():
     client = AdsClient.create_tcp(
         src=AmsAddress(net_id="192.168.178.12.1.1", port=1234),
-        dst=AmsAddress(net_id="192.168.178.11.1.1", port=851),
+        dst=AmsAddress(net_id="192.168.178.11.1.1", port=AmsServicePort.TC3_RUNTIME_1),
         ip="192.168.178.11",
         port=48898,
     )
@@ -52,14 +52,16 @@ async def main():
         last_cycle_cnt = 0
         for _ in range(500):
             symbol_value = await client.read_symbols_by_names(variables)
-            cycle_cnt = symbol_value["TwinCAT_SystemInfoVarList._TaskInfo[1].CycleCount"].value
+            cycle_cnt = symbol_value[
+                "TwinCAT_SystemInfoVarList._TaskInfo[1].CycleCount"
+            ].value
             # Set task cycle time in multiples of 100 ns
-            cycle_time = symbol_value["TwinCAT_SystemInfoVarList._TaskInfo[1].CycleTime"].value
+            cycle_time = symbol_value[
+                "TwinCAT_SystemInfoVarList._TaskInfo[1].CycleTime"
+            ].value
             cycle_cnt_dif = cycle_cnt - last_cycle_cnt
             plc_time = cycle_cnt_dif * cycle_time / 10000  # Convert to ms
-            print(
-                f"Cycles changed: {cycle_cnt_dif} | Time changed: {plc_time}ms"
-            )
+            print(f"Cycles changed: {cycle_cnt_dif} | Time changed: {plc_time}ms")
             last_cycle_cnt = cycle_cnt
 
     finally:

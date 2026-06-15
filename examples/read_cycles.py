@@ -3,6 +3,7 @@ import logging
 
 from aioads.ads_client import AdsClient
 from aioads.ams_address import AmsAddress
+from aioads.ams_port import AmsServicePort
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -10,7 +11,7 @@ logging.basicConfig(level=logging.DEBUG)
 async def main():
     client = AdsClient.create_tcp(
         src=AmsAddress(net_id="192.168.178.12.1.1", port=1234),
-        dst=AmsAddress(net_id="192.168.178.11.1.1", port=851),
+        dst=AmsAddress(net_id="192.168.178.11.1.1", port=AmsServicePort.TC3_RUNTIME_1),
         ip="192.168.178.11",
         port=48898,
     )
@@ -26,9 +27,7 @@ async def main():
             cycle_time = symbol_value["CycleTime"]
             cycle_cnt_dif = cycle_cnt - last_cycle_cnt
             plc_time = cycle_cnt_dif * cycle_time / 10000  # Convert to ms
-            print(
-                f"Cycles changed: {cycle_cnt_dif} | Time changed: {plc_time}ms"
-            )
+            print(f"Cycles changed: {cycle_cnt_dif} | Time changed: {plc_time}ms")
             last_cycle_cnt = cycle_cnt
 
     finally:

@@ -25,7 +25,7 @@ IndexOffset values:
 4 = ADS_ROUTE_ENABLE_TMP    (temporary)
 
 
-Example of a route config `/3.1/Target/Routes/<route.xml>` 
+Example of a route config `/3.1/Target/Routes/<route.xml>`
 ```
 <!-- Route configuration example -->
 <Mqtt Disabled="true">
@@ -35,12 +35,13 @@ Example of a route config `/3.1/Target/Routes/<route.xml>`
 </Mqtt>
 ```
 
-Expected route name string: `MQTT:MyBroker` 
+Expected route name string: `MQTT:MyBroker`
 """
 
 from enum import IntEnum
 
 from aioads.ams_address import AmsAddress
+from aioads.ams_service_port import AmsServicePort
 from aioads.commands.ads_write import AdsWriteCommand, AdsWriteResponse
 from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
 from aioads.transport import ITransport
@@ -48,9 +49,10 @@ from aioads.transport import ITransport
 
 class RouteSwitch(IntEnum):
     """
-    Enum (index offset) to control the state of a route. 
-    A route can temporarily enabled / disabled and gets reset after a restart of the runtime. 
+    Enum (index offset) to control the state of a route.
+    A route can temporarily enabled / disabled and gets reset after a restart of the runtime.
     """
+
     ROUTE_DISABLE = 1
     ROUTE_ENABLE = 2
     ROUTE_DISABLE_TMP = 3
@@ -69,16 +71,19 @@ class AdsEnableRoute(IAdsFunction[AdsWriteResponse]):
     or if a name in the mqtt route config section is defined
     `MQTT:<RouteName>`
 
-    I think that this interface allows the same for the default router but i have not tested it yet. 
+    I think that this interface allows the same for the default router but i have not tested it yet.
     """
 
-    SYSTEM_SERVICE_PORT = 10000
-
-    def __init__(self, transport: ITransport, ams_address: AmsAddress, route: str, switch: RouteSwitch) -> None:
+    def __init__(
+        self,
+        transport: ITransport,
+        ams_address: AmsAddress,
+        route: str,
+        switch: RouteSwitch,
+    ) -> None:
         # We modify the port here as this function only works on the system service
         self.modified_address = AmsAddress(
-            net_id=ams_address.net_id,
-            port=self.SYSTEM_SERVICE_PORT
+            net_id=ams_address.net_id, port=AmsServicePort.SYSTEM_SERVICE
         )
         self.transport = transport
         self.route = route
@@ -94,6 +99,6 @@ class AdsEnableRoute(IAdsFunction[AdsWriteResponse]):
             ams_address=self.modified_address,
             idx_group=AdsFunctionSymbolGroup.ADSIGRP_TOGGLE_ROUTE_ENABLE,
             idx_offset=self.switch.value,
-            payload=self.serialize()
+            payload=self.serialize(),
         )
         return await command.request()

@@ -1,10 +1,9 @@
 import asyncio
-import json
 import logging
-import time
 
 from aioads.ads_client import AdsClient
 from aioads.ams_address import AmsAddress
+from aioads.ams_service_port import AmsServicePort
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -12,7 +11,7 @@ logging.basicConfig(level=logging.DEBUG)
 async def main():
     client = AdsClient.create_tcp(
         src=AmsAddress(net_id="192.168.178.12.1.1", port=1234),
-        dst=AmsAddress(net_id="192.168.178.11.1.1", port=851),
+        dst=AmsAddress(net_id="192.168.178.11.1.1", port=AmsServicePort.TC3_RUNTIME_1),
         ip="192.168.178.11",
         port=48898,
     )
