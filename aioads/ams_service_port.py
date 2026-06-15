@@ -1,7 +1,11 @@
+"""AMS service port constants used to address well-known endpoints on a target."""
+
 from enum import IntEnum
 
 
 class AmsServicePort(IntEnum):
+    """Well-known AMS service port numbers used in AMS/ADS communication."""
+
     # --- Core / Router ---
     ADS_ROUTER = 1
     AMS_DEBUGGER = 2
