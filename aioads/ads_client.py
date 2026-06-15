@@ -1,8 +1,6 @@
 """ADS Client for communicating with ADS devices asynchronously."""
-import asyncio
+
 import logging
-import os
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -59,9 +57,6 @@ class AdsClient:
         self.parser = parser
         self._cache = cache
         self._notification = notification
-        self.parser_pool = ThreadPoolExecutor(
-            max_workers=(os.cpu_count() or 1) * 2
-        )
 
     @classmethod
     def create_tcp(
@@ -93,7 +88,9 @@ class AdsClient:
         )
 
     @classmethod
-    def create_from_transport(cls, dst: AmsAddress, transport: ITransport) -> "AdsClient":
+    def create_from_transport(
+        cls, dst: AmsAddress, transport: ITransport
+    ) -> "AdsClient":
         """
         Create a new ADS client with an existing transport instance.
         :param src: The source AMS address
@@ -151,7 +148,7 @@ class AdsClient:
 
     async def enable_route(self, route_name: str, enabled: bool):
         """
-        Enable or disable a ads route. 
+        Enable or disable a ads route.
         Example route name for `ads over mqtt`: `MQTT:192.168.178.12.1.1:ads` (MQTT:<NetID>:<Topic>)
         Example with defined name: `MQTT:MyBroker`
         """
@@ -160,7 +157,7 @@ class AdsClient:
             self.transport,
             self.dst_address,
             route_name,
-            RouteSwitch.ROUTE_ENABLE_TMP if enabled else RouteSwitch.ROUTE_DISABLE_TMP
+            RouteSwitch.ROUTE_ENABLE_TMP if enabled else RouteSwitch.ROUTE_DISABLE_TMP,
         )
         response = await request.execute()
         if not response.error_code.ok:
@@ -258,8 +255,7 @@ class AdsClient:
             exceptions.append(AdsCommandError(error_code, symbol_path))
 
         if exceptions:
-            raise ExceptionGroup(
-                "One or more symbol read errors occurred", exceptions)
+            raise ExceptionGroup("One or more symbol read errors occurred", exceptions)
 
     async def read_symbols_by_names(
         self, symbol_names: set[str], raise_errors: bool = True
@@ -274,63 +270,52 @@ class AdsClient:
         if raise_errors:
             self._raise_if_error(symbol_infos)
 
-        output: dict[str, SymbolReadResult] = {}
-
-        # Only symbols whose info resolved successfully can be read. Symbols
-        # with a lookup error are reported as-is; building a read command from
-        # their (invalid) index group/offset would misalign the bulk response.
-        readable: list[tuple[str, SymbolInfo]] = []
-        for requested_name, (error_code, symbol_info) in symbol_infos.items():
-            if not error_code.ok:
-                output[requested_name] = SymbolReadResult(error_code, None)
-            else:
-                readable.append((requested_name, symbol_info))
-
+        # Pre-seed the result with lookup errors so the output preserves the
+        # requested order; successful entries are overwritten after the read.
+        # Symbols with a failed lookup cannot be read: their idx_group/offset
+        # would misalign the bulk response.
+        output: dict[str, SymbolReadResult] = {
+            name: SymbolReadResult(error_code, None)
+            for name, (error_code, _) in symbol_infos.items()
+        }
+        readable = [
+            (name, info)
+            for name, (error_code, info) in symbol_infos.items()
+            if error_code.ok
+        ]
         if not readable:
             return output
 
-        function = AdsSumRead(
+        sum_read = AdsSumRead(
             transport=self.transport,
             ams_address=self.dst_address,
             commands=[
                 AdsReadCommand(
                     transport=self.transport,
                     ams_address=self.dst_address,
-                    idx_group=symbol_info.idx_group,
-                    idx_offset=symbol_info.idx_offset,
-                    length=symbol_info.idx_length,
+                    idx_group=info.idx_group,
+                    idx_offset=info.idx_offset,
+                    length=info.idx_length,
                 )
-                for _, symbol_info in readable
+                for _, info in readable
             ],
         )
-        response = await function.execute()
+        response = await sum_read.execute()
 
-        loop = asyncio.get_running_loop()
-        parse_names: list[str] = []
-        tasks = []
-        for (requested_name, symbol_info), (read_response, resp_payload) in zip(
-            readable, response
+        for (name, info), (read_response, resp_payload) in zip(
+            readable, response, strict=True
         ):
-            # A failed read yields no usable payload, so skip parsing it.
-            if read_response.error_code != 0:
-                output[requested_name] = SymbolReadResult(
-                    read_response.error_code, None)
+            if not read_response.error_code.ok:
+                output[name] = SymbolReadResult(read_response.error_code, None)
                 continue
-            parse_names.append(requested_name)
-            tasks.append(
-                loop.run_in_executor(
-                    self.parser_pool,
-                    self.parser.parse,
-                    symbol_info.data_type,
-                    symbol_info.type_name,
-                    resp_payload,
-                )
+            output[name] = SymbolReadResult(
+                AdsErrorCode(0),
+                self.parser.parse(
+                    data_type=info.data_type,
+                    type_name=info.type_name,
+                    raw_data=resp_payload,
+                ),
             )
-
-        parsed = await asyncio.gather(*tasks)
-        for requested_name, symbol_data in zip(parse_names, parsed):
-            output[requested_name] = SymbolReadResult(
-                AdsErrorCode(0), symbol_data)
 
         return output
 
