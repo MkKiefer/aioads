@@ -6,6 +6,7 @@ https://infosys.beckhoff.com/english.php?content=../content/1033/tc3_adsdll2/124
 
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read import AdsReadCommand
+from aioads.commands.errors import AdsCommandError
 from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
 from aioads.functions.ads_symbol_datatype_by_name import SymbolDataTypeResponse
 from aioads.transport import ITransport
@@ -38,7 +39,9 @@ class AdsSymbolDataTypeUpload(IAdsFunction[list[SymbolDataTypeResponse]]):
             idx_offset=0,
             length=self.dt_size,
         )
-        _, read_payload = await command.request()
+        header, read_payload = await command.request()
+        if not header.error_code.ok:
+            raise AdsCommandError(header.error_code, "Failed to read datatype info")
 
         symbol_datatypes = list[SymbolDataTypeResponse]()
         start = read_payload.tell()

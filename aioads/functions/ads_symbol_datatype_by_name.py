@@ -36,11 +36,13 @@ packet
 
 
 """
+
 from dataclasses import dataclass
 from struct import Struct
 from typing import ClassVar
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read_write import AdsReadWriteCommand
+from aioads.commands.errors import AdsCommandError
 from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
 from aioads.functions.ads_symbol_info_by_name_ex import (
     AdsSymbolDataType,
@@ -75,8 +77,7 @@ class AdsDatatypeArrayInfo:
         """
         Create `AdsDatatypeArrayInfo` from the `AdsStream`
         """
-        l_bound, e_elements = data.read_struct(
-            AdsDatatypeArrayInfo.STRUCT_DEF)
+        l_bound, e_elements = data.read_struct(AdsDatatypeArrayInfo.STRUCT_DEF)
         return AdsDatatypeArrayInfo(
             l_bound=l_bound,
             e_elements=e_elements,
@@ -227,6 +228,10 @@ class AdsSymbolDataTypeByName(IAdsFunction[SymbolDataTypeResponse]):
             write_length=len(payload),
             read_length=0xFFFF,  # Max read length
         )
-        _, read_payload = await command.request()
+        header, read_payload = await command.request()
+        if not header.error_code.ok:
+            raise AdsCommandError(
+                header.error_code, "Failed to read symbol datatype by name"
+            )
         symbol_datatype = SymbolDataTypeResponse.deserialize(read_payload)
         return symbol_datatype
