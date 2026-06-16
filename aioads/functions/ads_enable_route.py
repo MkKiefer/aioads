@@ -9,7 +9,7 @@ config:
         rowHeight: 40
         bitWidth: 80
         bitsPerRow: 8
-        showBits: ture
+        showBits: true
 ---
 packet
 +4: "IndexGroup = 808 (4 bytes)"

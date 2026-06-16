@@ -4,6 +4,8 @@ This module provides models and ads function to get the symbol info (symbol meta
 
 from dataclasses import dataclass
 from enum import IntEnum, IntFlag
+from struct import Struct
+from typing import ClassVar
 from aioads.ads_error_codes import AdsErrorCode
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read_write import AdsReadWriteCommand
@@ -62,6 +64,10 @@ class SymbolInfo:
     type_name: str
     comment: str
 
+    # entry_length, idx_group, idx_offset, idx_length, data_type,
+    # symbol_flags, name_length, type_name_length, comment_length
+    FIXED_STRUCT: ClassVar[Struct] = Struct("<6I3H")
+
     def serialize(self) -> bytes:
         """
         Serialize the `SymbolInfo` to bytes
@@ -96,25 +102,22 @@ class SymbolInfo:
         Create `SymbolInfo` from the `AdsStream`
         """
         start_pos = data.tell()
-        entry_length = int.from_bytes(data.read_view(4), byteorder="little")
-        idx_group = int.from_bytes(data.read_view(4), byteorder="little")
-        idx_offset = int.from_bytes(data.read_view(4), byteorder="little")
-        idx_length = int.from_bytes(data.read_view(4), byteorder="little")
-        data_type = AdsSymbolDataType.from_bytes(
-            data.read_view(4), byteorder="little")
-        symbol_flags = AdsSymbolFlags.from_bytes(
-            data.read_view(4), byteorder="little")
-        symbol_name_length = int.from_bytes(
-            data.read_view(2), byteorder="little") + 1
-        type_name_length = int.from_bytes(
-            data.read_view(2), byteorder="little") + 1
-        comment_length = int.from_bytes(
-            data.read_view(2), byteorder="little") + 1
-        symbol_name = data.read(symbol_name_length).rstrip(
+        (
+            entry_length,
+            idx_group,
+            idx_offset,
+            idx_length,
+            data_type,
+            symbol_flags,
+            symbol_name_length,
+            type_name_length,
+            comment_length,
+        ) = data.read_struct(SymbolInfo.FIXED_STRUCT)
+        symbol_name = data.read(symbol_name_length + 1).rstrip(
             b"\x00").decode("cp1252")
-        type_name = data.read(type_name_length).rstrip(
+        type_name = data.read(type_name_length + 1).rstrip(
             b"\x00").decode("cp1252")
-        comment = data.read(comment_length).rstrip(b"\x00").decode("cp1252")
+        comment = data.read(comment_length + 1).rstrip(b"\x00").decode("cp1252")
 
         # Move the stream position to the end of the entry
         data.seek(start_pos + entry_length)
@@ -123,8 +126,8 @@ class SymbolInfo:
             idx_group=idx_group,
             idx_offset=idx_offset,
             idx_length=idx_length,
-            data_type=data_type,
-            symbol_flags=symbol_flags,
+            data_type=AdsSymbolDataType(data_type),
+            symbol_flags=AdsSymbolFlags(symbol_flags),
             symbol_name=symbol_name,
             type_name=type_name,
             comment=comment,
@@ -173,7 +176,11 @@ class SymbolInfoByNameExSumRead(
     """
     This function utilizes the `AdsSumReadWrite` function to
     send multiple `SymbolInfoByNameEx` function calls in a batch.
+    Requests for more symbols than the PLC-side batch limit are
+    transparently split into multiple sum read/write calls.
     """
+
+    BATCH_SIZE = 500
 
     def __init__(
         self,
@@ -207,13 +214,14 @@ class SymbolInfoByNameExSumRead(
 
     async def execute(self):
         commands = self.create_sub_commands()
-        command = AdsSumReadWrite(
-            transport=self.transport,
-            ams_address=self.ams_address,
-            commands=commands,
-        )
         response = list[tuple[AdsErrorCode, SymbolInfo]]()
-        for read_header, read_payload in await command.execute():
-            symbol_info = SymbolInfo.deserialize(read_payload)
-            response.append((read_header.error_code, symbol_info))
+        for batch_start in range(0, len(commands), self.BATCH_SIZE):
+            command = AdsSumReadWrite(
+                transport=self.transport,
+                ams_address=self.ams_address,
+                commands=commands[batch_start:batch_start + self.BATCH_SIZE],
+            )
+            for read_header, read_payload in await command.execute():
+                symbol_info = SymbolInfo.deserialize(read_payload)
+                response.append((read_header.error_code, symbol_info))
         return response

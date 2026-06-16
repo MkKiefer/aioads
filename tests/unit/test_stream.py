@@ -128,6 +128,40 @@ class TestAdsStream(unittest.TestCase):
         self.assertEqual(sub.tell(), 2)
         self.assertEqual(self.stream.tell(), 8)
 
+    def test_read_past_end_raises_value_error(self) -> None:
+        # Arrange
+        self.stream.seek(14)
+
+        # Act / Assert — short reads on truncated data must not be silent
+        with self.assertRaises(ValueError) as ctx:
+            self.stream.read(4)
+
+        self.assertIn("exceeds stream length", str(ctx.exception))
+
+    def test_read_view_past_end_raises_value_error(self) -> None:
+        # Arrange
+        self.stream.seek(15)
+
+        # Act / Assert
+        with self.assertRaises(ValueError):
+            self.stream.read_view(2)
+
+    def test_read_struct_past_end_raises_value_error(self) -> None:
+        # Arrange
+        self.stream.seek(10)
+
+        # Act / Assert
+        with self.assertRaises(ValueError):
+            self.stream.read_struct(Struct("<8s"))
+
+    def test_read_to_exact_end_is_allowed(self) -> None:
+        # Act
+        result = self.stream.read(16)
+
+        # Assert
+        self.assertEqual(result, self.data)
+        self.assertEqual(self.stream.tell(), 16)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,7 +10,7 @@ config:
         rowHeight: 40
         bitWidth: 80
         bitsPerRow: 8
-        showBits: ture
+        showBits: true
 ---
 packet
 +4: "entry length (4 bytes)"
@@ -37,6 +37,8 @@ packet
 
 """
 from dataclasses import dataclass
+from struct import Struct
+from typing import ClassVar
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read_write import AdsReadWriteCommand
 from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
@@ -57,6 +59,8 @@ class AdsDatatypeArrayInfo:
     l_bound: int
     e_elements: int
 
+    STRUCT_DEF: ClassVar[Struct] = Struct("<II")
+
     def serialize(self) -> bytes:
         """
         serialize the `AdsDatatypeArrayInfo` to bytes
@@ -71,8 +75,8 @@ class AdsDatatypeArrayInfo:
         """
         Create `AdsDatatypeArrayInfo` from the `AdsStream`
         """
-        l_bound = int.from_bytes(data.read_view(4), byteorder="little")
-        e_elements = int.from_bytes(data.read_view(4), byteorder="little")
+        l_bound, e_elements = data.read_struct(
+            AdsDatatypeArrayInfo.STRUCT_DEF)
         return AdsDatatypeArrayInfo(
             l_bound=l_bound,
             e_elements=e_elements,
@@ -97,6 +101,11 @@ class SymbolDataTypeResponse:
     comment: str
     array: list[AdsDatatypeArrayInfo]
     sub_items: list["SymbolDataTypeResponse"]
+
+    # entry_length, version, hash_value, type_hash_value, size, offs,
+    # data_type, flags, name_length, type_name_length, comment_length,
+    # array_dim, sub_items_count
+    FIXED_STRUCT: ClassVar[Struct] = Struct("<8I5H")
 
     def serialize(self) -> bytes:
         """
@@ -141,25 +150,24 @@ class SymbolDataTypeResponse:
         """
 
         start_pos = data.tell()
-        entry_length = int.from_bytes(data.read_view(4), byteorder="little")
-        version = int.from_bytes(data.read_view(4), byteorder="little")
-        hash_value = int.from_bytes(data.read_view(4), byteorder="little")
-        type_hash_value = int.from_bytes(data.read_view(4), byteorder="little")
-        size = int.from_bytes(data.read_view(4), byteorder="little")
-        offs = int.from_bytes(data.read_view(4), byteorder="little")
-        data_type = AdsSymbolDataType.from_bytes(
-            data.read_view(4), byteorder="little")
-        flags = AdsSymbolFlags.from_bytes(
-            data.read_view(4), byteorder="little")
-        name_length = int.from_bytes(data.read_view(2), byteorder="little") + 1
-        type_length = int.from_bytes(data.read_view(2), byteorder="little") + 1
-        comment_length = int.from_bytes(
-            data.read_view(2), byteorder="little") + 1
-        array_dim = int.from_bytes(data.read_view(2), byteorder="little")
-        sub_items_cnt = int.from_bytes(data.read_view(2), byteorder="little")
-        name = data.read(name_length).rstrip(b"\x00").decode("cp1252")
-        type_name = data.read(type_length).rstrip(b"\x00").decode("cp1252")
-        comment = data.read(comment_length).rstrip(b"\x00").decode("cp1252")
+        (
+            entry_length,
+            version,
+            hash_value,
+            type_hash_value,
+            size,
+            offs,
+            data_type,
+            flags,
+            name_length,
+            type_length,
+            comment_length,
+            array_dim,
+            sub_items_cnt,
+        ) = data.read_struct(SymbolDataTypeResponse.FIXED_STRUCT)
+        name = data.read(name_length + 1).rstrip(b"\x00").decode("cp1252")
+        type_name = data.read(type_length + 1).rstrip(b"\x00").decode("cp1252")
+        comment = data.read(comment_length + 1).rstrip(b"\x00").decode("cp1252")
         array_info: list[AdsDatatypeArrayInfo] = []
         for _ in range(array_dim):
             array_info.append(AdsDatatypeArrayInfo.deserialize(data))
@@ -176,8 +184,8 @@ class SymbolDataTypeResponse:
             type_hash_value=type_hash_value,
             size=size,
             offs=offs,
-            data_type=data_type,
-            flags=flags,
+            data_type=AdsSymbolDataType(data_type),
+            flags=AdsSymbolFlags(flags),
             name=name,
             type_name=type_name,
             comment=comment,

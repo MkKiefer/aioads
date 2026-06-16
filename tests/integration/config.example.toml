@@ -1,0 +1,37 @@
+# Integration test configuration.
+# Copy this file to `config.toml` (next to it) and adjust it to your endpoint.
+# Without a `config.toml` the integration tests are skipped.
+
+[connection]
+# Which transport to use: "tcp", "aiomqtt" or "gmqtt".
+# The selected transport is configured in the matching [transport.*] section below.
+transport = "tcp"
+src_net_id = "192.168.178.12.1.1"
+src_port = 1234
+dst_net_id = "192.168.178.11.1.1"
+dst_port = 851
+
+[transport.tcp]
+ip = "192.168.178.11"
+port = 48898
+
+[transport.aiomqtt]
+url = "mqtt://127.0.0.1:1883"
+prefix = "ads"
+name = "aioads-integration"
+
+[transport.gmqtt]
+url = "mqtt://127.0.0.1:1883"
+prefix = "ads"
+name = "aioads-integration"
+
+[symbols]
+# Symbols that must exist on the target. The defaults exist on every TwinCAT 3 PLC.
+single = "TwinCAT_SystemInfoVarList._TaskInfo[1].CycleCount"
+multiple = [
+    "TwinCAT_SystemInfoVarList._AppInfo.AppName",
+    "TwinCAT_SystemInfoVarList._AppInfo.ProjectName",
+    "TwinCAT_SystemInfoVarList._TaskInfo[1].CycleTime",
+]
+# A symbol that changes regularly, used for the notification test.
+notification = "TwinCAT_SystemInfoVarList._TaskInfo[1].CycleCount"
