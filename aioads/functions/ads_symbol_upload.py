@@ -1,9 +1,10 @@
 """
-This module contains a ads function to acquire the symbol infos (metadata) of the global / root symbols.  
+This module contains a ads function to acquire the symbol infos (metadata) of the global / root symbols.
 """
 
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read import AdsReadCommand
+from aioads.commands.errors import AdsCommandError
 from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
 from aioads.functions.ads_symbol_info_by_name_ex import SymbolInfo
 from aioads.transport import ITransport
@@ -11,8 +12,8 @@ from aioads.transport import ITransport
 
 class AdsSymbolUpload(IAdsFunction[list[SymbolInfo]]):
     """
-    Ads Function to read all global symbols. 
-    Hint: 
+    Ads Function to read all global symbols.
+    Hint:
         Only the top most symbol information are returned, to get the full ads tree
         you need to resolve it from this over the datatypes that can be requested with `AdsSymbolDataTypeUpload`
     """
@@ -36,7 +37,12 @@ class AdsSymbolUpload(IAdsFunction[list[SymbolInfo]]):
             idx_offset=0,
             length=self.tree_size,
         )
-        _, read_payload = await command.request()
+        header, read_payload = await command.request()
+        if not header.error_code.ok:
+            raise AdsCommandError(
+                header.error_code, "Failed to request symbol upload info"
+            )
+
         symbol_infos = list[SymbolInfo]()
 
         start = read_payload.tell()

@@ -10,6 +10,7 @@ from typing import ClassVar
 
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read import AdsReadCommand
+from aioads.commands.errors import AdsCommandError
 from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
 
 from aioads.stream import AdsStream
@@ -46,11 +47,9 @@ class SymbolUploadInfo2Response:
     @classmethod
     def deserialize(cls, data: AdsStream) -> "SymbolUploadInfo2Response":
         """
-        Create `SymbolUploadInfo2Response` from the `AdsStream` 
+        Create `SymbolUploadInfo2Response` from the `AdsStream`
         """
-        parsed: tuple[
-            int, int, int, int, int, int
-        ] = data.read_struct(cls.STRUCT_DEF)
+        parsed: tuple[int, int, int, int, int, int] = data.read_struct(cls.STRUCT_DEF)
         return cls(
             symbol_cnt=parsed[0],
             symbol_size=parsed[1],
@@ -63,7 +62,7 @@ class SymbolUploadInfo2Response:
 
 class AdsSymbolUploadInfo2(IAdsFunction[SymbolUploadInfo2Response]):
     """
-    Function to acquire basic symbol information 
+    Function to acquire basic symbol information
     """
 
     def __init__(self, transport: ITransport, ams_address: AmsAddress) -> None:
@@ -83,7 +82,10 @@ class AdsSymbolUploadInfo2(IAdsFunction[SymbolUploadInfo2Response]):
             # 6 x 4 bytes (We expect a struct with 6x UINT32)
             length=SymbolUploadInfo2Response.STRUCT_DEF.size,
         )
-        _, read_payload = await command.request()
-        symbol_upload_info = SymbolUploadInfo2Response.deserialize(
-            read_payload)
+        header, read_payload = await command.request()
+        if not header.error_code.ok:
+            raise AdsCommandError(
+                header.error_code, "Failed to request symbol upload info"
+            )
+        symbol_upload_info = SymbolUploadInfo2Response.deserialize(read_payload)
         return symbol_upload_info

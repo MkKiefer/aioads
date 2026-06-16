@@ -1,5 +1,5 @@
 """
-This module provides models and ads function to get the symbol info (symbol metadata) by the variable / symbol name. 
+This module provides models and ads function to get the symbol info (symbol metadata) by the variable / symbol name.
 """
 
 from dataclasses import dataclass
@@ -9,6 +9,7 @@ from typing import ClassVar
 from aioads.ads_error_codes import AdsErrorCode
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read_write import AdsReadWriteCommand
+from aioads.commands.errors import AdsCommandError
 from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
 from aioads.functions.ads_sum_read_write import AdsSumReadWrite
 from aioads.stream import AdsStream
@@ -113,10 +114,8 @@ class SymbolInfo:
             type_name_length,
             comment_length,
         ) = data.read_struct(SymbolInfo.FIXED_STRUCT)
-        symbol_name = data.read(symbol_name_length + 1).rstrip(
-            b"\x00").decode("cp1252")
-        type_name = data.read(type_name_length + 1).rstrip(
-            b"\x00").decode("cp1252")
+        symbol_name = data.read(symbol_name_length + 1).rstrip(b"\x00").decode("cp1252")
+        type_name = data.read(type_name_length + 1).rstrip(b"\x00").decode("cp1252")
         comment = data.read(comment_length + 1).rstrip(b"\x00").decode("cp1252")
 
         # Move the stream position to the end of the entry
@@ -131,6 +130,20 @@ class SymbolInfo:
             symbol_name=symbol_name,
             type_name=type_name,
             comment=comment,
+        )
+
+    @classmethod
+    def void(cls) -> "SymbolInfo":
+        """A void symbol info that can be used as a placeholder"""
+        return cls(
+            idx_group=0,
+            idx_offset=0,
+            idx_length=0,
+            data_type=AdsSymbolDataType.VOID,
+            symbol_flags=AdsSymbolFlags(0),
+            symbol_name="",
+            type_name="",
+            comment="",
         )
 
 
@@ -165,14 +178,14 @@ class SymbolInfoByNameEx(IAdsFunction[SymbolInfo]):
             read_length=0xFFFF,  # Max read length
             write_data=payload,
         )
-        _, read_payload = await command.request()
+        header, read_payload = await command.request()
+        if not header.error_code.ok:
+            raise AdsCommandError(header.error_code, "Failed to read symbol info")
         symbol_info = SymbolInfo.deserialize(read_payload)
         return symbol_info
 
 
-class SymbolInfoByNameExSumRead(
-    IAdsFunction[list[tuple[AdsErrorCode, SymbolInfo]]]
-):
+class SymbolInfoByNameExSumRead(IAdsFunction[list[tuple[AdsErrorCode, SymbolInfo]]]):
     """
     This function utilizes the `AdsSumReadWrite` function to
     send multiple `SymbolInfoByNameEx` function calls in a batch.
@@ -219,9 +232,14 @@ class SymbolInfoByNameExSumRead(
             command = AdsSumReadWrite(
                 transport=self.transport,
                 ams_address=self.ams_address,
-                commands=commands[batch_start:batch_start + self.BATCH_SIZE],
+                commands=commands[batch_start : batch_start + self.BATCH_SIZE],
             )
-            for read_header, read_payload in await command.execute():
+            for header, read_payload in await command.execute():
+                # If we have an error and no payload we return a void symbol info
+                # we raise no exception to let the client handle the error for each symbol individually
+                if not header.error_code.ok and read_payload.length == 0:
+                    response.append((header.error_code, SymbolInfo.void()))
+                    continue
                 symbol_info = SymbolInfo.deserialize(read_payload)
-                response.append((read_header.error_code, symbol_info))
+                response.append((header.error_code, symbol_info))
         return response

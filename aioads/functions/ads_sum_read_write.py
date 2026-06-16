@@ -49,17 +49,17 @@ packet
 ```
 
 """
+
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read import AdsReadResponse
 from aioads.commands.ads_read_write import AdsReadWriteCommand
+from aioads.commands.errors import AdsCommandError
 from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
 from aioads.stream import AdsStream
 from aioads.transport import ITransport
 
 
-class AdsSumReadWrite(
-    IAdsFunction[list[tuple[AdsReadResponse, AdsStream]]]
-):
+class AdsSumReadWrite(IAdsFunction[list[tuple[AdsReadResponse, AdsStream]]]):
     """
     ADS Sum Read/Write function to send a READ/WRITE Command in batch.
     This function allows multiple read/write commands to be sent in a single request,
@@ -92,11 +92,9 @@ class AdsSumReadWrite(
         :return: An async generator yielding tuples of (AdsReadResponse, AdsStream) for each command.
         """
         if len(self.commands) == 0:
-            raise ValueError(
-                "At least one command is required for ADS Sum Read/Write")
+            raise ValueError("At least one command is required for ADS Sum Read/Write")
         if len(self.commands) > 500:
-            raise ValueError(
-                "Too many commands for ADS Sum Read/Write, maximum is 500")
+            raise ValueError("Too many commands for ADS Sum Read/Write, maximum is 500")
 
         payload = self.serialize()
         total_read_length = sum(
@@ -117,15 +115,19 @@ class AdsSumReadWrite(
             write_length=total_write_length,
             write_data=payload,
         )
-        _, read_payload = await command.request()
+        header, read_payload = await command.request()
+        if not header.error_code.ok:
+            raise AdsCommandError(
+                header.error_code, "Failed to execute ADS Sum Read/Write"
+            )
         read_response_stream = read_payload.sub_stream(
-            len(self.commands) * AdsReadResponse.STRUCT_DEF.size)
+            len(self.commands) * AdsReadResponse.STRUCT_DEF.size
+        )
 
         response: list[tuple[AdsReadResponse, AdsStream]] = []
         for _ in self.commands:
             read_response = AdsReadResponse.deserialize(read_response_stream)
-            response.append((
-                read_response,
-                read_payload.sub_stream(read_response.length)
-            ))
+            response.append(
+                (read_response, read_payload.sub_stream(read_response.length))
+            )
         return response

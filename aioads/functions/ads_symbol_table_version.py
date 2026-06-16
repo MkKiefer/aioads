@@ -2,7 +2,7 @@
 This module contains the ads function call for requesting the `SymbolTableVersion`.
 
 
-This can be used to monitoring, on change the index offsets in symbol metadata can change 
+This can be used to monitoring, on change the index offsets in symbol metadata can change
 and we need to re resolve the new address where we can read this symbol, if we don't do this
 we read a random memory array we most likely can't parse.
 https://infosys.beckhoff.com/english.php?content=../content/1033/tc3_adsdll2/124830987.html&id=
@@ -42,8 +42,9 @@ class SymbolTableVersion(IAdsFunction[int]):
             idx_offset=0,
             length=1,
         )
-        read_resp, read_stream = await command.request()
-        if not read_resp.error_code.ok:
-            raise AdsCommandError(read_resp.error_code,
-                                  "Failed to read symbol table version")
+        header, read_stream = await command.request()
+        if not header.error_code.ok:
+            raise AdsCommandError(
+                header.error_code, "Failed to read symbol table version"
+            )
         return read_stream.read_struct(self.VERSION_STRUCT_DEF)[0]
