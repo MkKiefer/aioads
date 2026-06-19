@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import socket
 import unittest
 from unittest.mock import Mock
 
@@ -214,6 +215,74 @@ class TestAdsTcpTransport(unittest.IsolatedAsyncioTestCase):
             await self.transport._read_loop()
 
         self.assertIsInstance(ctx.exception.__cause__, asyncio.IncompleteReadError)
+
+
+class TestAdsTcpTransportKeepalive(unittest.TestCase):
+    """TCP keepalive / liveness configuration applied to the active socket."""
+
+    def setUp(self) -> None:
+        self.transport = AdsTcpTransport(
+            src_address=make_ams_address(), ip="127.0.0.1"
+        )
+        # A real AF_INET TCP socket whose options we can read back. It does not
+        # need to be connected to accept these socket options.
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.addCleanup(self.sock.close)
+        # A StreamWriter exposes its underlying socket via get_extra_info("socket").
+        self.writer = Mock()
+        self.writer.get_extra_info.return_value = self.sock
+
+    def test_enable_keepalive_turns_on_so_keepalive(self) -> None:
+        # Act
+        self.transport._enable_keepalive(self.writer)
+
+        # Assert
+        self.assertEqual(
+            self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE), 1
+        )
+
+    @unittest.skipUnless(
+        hasattr(socket, "TCP_KEEPIDLE"), "platform lacks TCP keepalive tuning"
+    )
+    def test_enable_keepalive_applies_configured_tuning_values(self) -> None:
+        # Act
+        self.transport._enable_keepalive(self.writer)
+
+        # Assert — each kernel knob reflects the transport's configured constant
+        expected = [
+            ("TCP_KEEPIDLE", AdsTcpTransport.KEEPALIVE_IDLE),
+            ("TCP_KEEPINTVL", AdsTcpTransport.KEEPALIVE_INTERVAL),
+            ("TCP_KEEPCNT", AdsTcpTransport.KEEPALIVE_COUNT),
+            ("TCP_USER_TIMEOUT", AdsTcpTransport.USER_TIMEOUT_MS),
+        ]
+        for opt_name, value in expected:
+            opt = getattr(socket, opt_name, None)
+            if opt is None:
+                continue
+            with self.subTest(option=opt_name):
+                self.assertEqual(
+                    self.sock.getsockopt(socket.IPPROTO_TCP, opt), value
+                )
+
+    def test_enable_keepalive_without_socket_does_not_raise(self) -> None:
+        # Arrange — a StreamWriter without an underlying socket
+        self.writer.get_extra_info.return_value = None
+
+        # Act / Assert — keepalive is best-effort, so it is skipped quietly
+        try:
+            self.transport._enable_keepalive(self.writer)
+        except Exception as e:  # pragma: no cover - failure path
+            self.fail(f"_enable_keepalive must not raise when no socket: {e}")
+
+    def test_enable_keepalive_on_closed_socket_does_not_raise(self) -> None:
+        # Arrange — a closed socket makes setsockopt fail with OSError
+        self.sock.close()
+
+        # Act / Assert — keepalive is best-effort, so the error is swallowed
+        try:
+            self.transport._enable_keepalive(self.writer)
+        except OSError:
+            self.fail("_enable_keepalive must not propagate socket errors")
 
 
 if __name__ == "__main__":
