@@ -7,6 +7,7 @@ import enum
 import logging
 import random
 import re
+import socket
 from abc import ABC
 from dataclasses import dataclass
 from dataclasses import field
@@ -211,6 +212,22 @@ class AdsTcpTransport(BaseTransport, ITransport):
     RECONNECT_INITIAL_BACKOFF = 1.0
     RECONNECT_MAX_BACKOFF = 30.0
 
+    # TCP keepalive / liveness tuning.
+    # Without these, a half-open connection (peer power-cut, cable pull, NAT
+    # idle-eviction) is never detected: no FIN/RST arrives, so the read loop
+    # blocks forever and the supervisor never reconnects. These force the kernel
+    # to probe an idle peer and to bound how long unacked writes wait, so a dead
+    # link surfaces as a socket error within ~KEEPALIVE_IDLE + KEEPALIVE_INTERVAL
+    # * KEEPALIVE_COUNT seconds.
+    KEEPALIVE_IDLE = 10
+    """Seconds of idle before the kernel starts sending keepalive probes (Linux: TCP_KEEPIDLE)."""
+    KEEPALIVE_INTERVAL = 3
+    """Seconds between keepalive probes (Linux: TCP_KEEPINTVL)."""
+    KEEPALIVE_COUNT = 3
+    """Unanswered probes before the connection is considered dead (Linux: TCP_KEEPCNT)."""
+    USER_TIMEOUT_MS = 15_000
+    """Milliseconds an unacked write may wait before the socket errors (Linux: TCP_USER_TIMEOUT)."""
+
     def __init__(
         self,
         src_address: AmsAddress,
@@ -279,9 +296,42 @@ class AdsTcpTransport(BaseTransport, ITransport):
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(self.ip, self.port), self.CONNECT_TIMEOUT
         )
+
+        self._enable_keepalive(writer)
         async with self._stream_lock:
             self._stream = (reader, writer)
         self._state = ConnectionState.CONNECTED
+
+    def _enable_keepalive(self, writer: asyncio.StreamWriter) -> None:
+        """
+        Enable TCP keepalive so a half-open connection is detected 
+        even when no FIN/RST is ever sent.
+
+        The per-option settings beyond SO_KEEPALIVE are platform specific; each
+        is applied only when the running platform exposes it, so this stays a
+        no-op on systems that lack the knob rather than raising.
+        """
+
+        sock: socket.socket | None = writer.get_extra_info("socket")
+        if sock is None:
+            self.logger.warning(
+                "Failed to enable TCP keepalive: StreamWriter has no socket"
+            )
+            return
+
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            for opt_name, value in (
+                ("TCP_KEEPIDLE", self.KEEPALIVE_IDLE),
+                ("TCP_KEEPINTVL", self.KEEPALIVE_INTERVAL),
+                ("TCP_KEEPCNT", self.KEEPALIVE_COUNT),
+                ("TCP_USER_TIMEOUT", self.USER_TIMEOUT_MS),
+            ):
+                opt = getattr(socket, opt_name, None)
+                if opt is not None:
+                    sock.setsockopt(socket.IPPROTO_TCP, opt, value)
+        except OSError as e:
+            self.logger.warning("Failed to enable TCP keepalive: %s", e)
 
     async def _teardown_stream(self, ex: BaseException):
         """
@@ -364,7 +414,7 @@ class AdsTcpTransport(BaseTransport, ITransport):
         while self._state is not ConnectionState.CLOSED:
             try:
                 await self._read_loop()
-            except asyncio.CancelledError: #pylint: disable=try-except-raise
+            except asyncio.CancelledError:  # pylint: disable=try-except-raise
                 # Except everything... except a cancellation event
                 raise
             except Exception as e:
@@ -382,7 +432,7 @@ class AdsTcpTransport(BaseTransport, ITransport):
                     self.logger.info("Reconnected to the remote")
                     backoff = self.RECONNECT_INITIAL_BACKOFF
                     break
-                except asyncio.CancelledError: #pylint: disable=try-except-raise
+                except asyncio.CancelledError:  # pylint: disable=try-except-raise
                     raise
                 except Exception as e:  # pylint: disable=broad-exception-caught
                     self.logger.info(
