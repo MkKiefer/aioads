@@ -33,7 +33,7 @@ from tests.integration.config import load_config
 
 # Upper bound for connect + datatype upload + first cache fill. Depends on the
 # size of the PLC project, so this is a loose sanity bound only.
-STARTUP_MAX_BYTES = 64 * 1024 * 1024
+STARTUP_MAX_BYTES = 20 * 1024 * 1024
 
 # Reads executed before measuring, to let lazy one-time allocations
 # (struct caches, buffers growing to working size) settle.
@@ -42,8 +42,8 @@ WARMUP_READS = 25
 # Reads in the measured window. Each iteration performs one single-symbol read
 # and one multi-symbol read. Steady-state reads must not accumulate memory, so
 # the growth budget is small and independent of the read count.
-MEASURED_READS = 200
-RUNTIME_GROWTH_MAX_BYTES = 256 * 1024
+MEASURED_READS = 1500
+RUNTIME_GROWTH_MAX_BYTES = 16 * 1024
 
 # Transient memory a batch of reads may need on top of the steady state
 # (request/response buffers, parsed values before they are dropped).
@@ -57,7 +57,7 @@ RESIDUE_MAX_BYTES = 1 * 1024 * 1024
 # Full connect/read/disconnect cycles in the measured window and their total
 # growth budget. Growth proportional to the cycle count means a real leak.
 MEASURED_CYCLES = 5
-CYCLE_GROWTH_MAX_BYTES = 256 * 1024
+CYCLE_GROWTH_MAX_BYTES = 64 * 1024
 
 
 def _heap_bytes() -> int:
