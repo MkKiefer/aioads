@@ -217,6 +217,69 @@ class TestAdsTcpTransport(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(ctx.exception.__cause__, asyncio.IncompleteReadError)
 
 
+class TestAdsTcpTransportReconnect(unittest.IsolatedAsyncioTestCase):
+    """Reconnect supervision against a peer that accepts and instantly closes.
+
+    This models a PLC that completes the TCP handshake but rejects the
+    connection right away (e.g. the Beckhoff single-connection lockout).
+    Every connect *succeeds*, so only the stability-based backoff stands
+    between the supervisor and a zero-delay reconnect spin.
+    """
+
+    async def asyncSetUp(self) -> None:
+        self.accept_count = 0
+
+        async def accept_and_reject(
+            _reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        ) -> None:
+            self.accept_count += 1
+            writer.close()
+
+        self.server = await asyncio.start_server(
+            accept_and_reject, "127.0.0.1", 0
+        )
+        port = self.server.sockets[0].getsockname()[1]
+
+        self.transport = AdsTcpTransport(
+            src_address=make_ams_address(), ip="127.0.0.1", port=port
+        )
+        # Shrink the backoff so several reconnect cycles fit into a short
+        # observation window without slowing down the suite.
+        self.transport.RECONNECT_INITIAL_BACKOFF = 0.05
+        self.transport.RECONNECT_MAX_BACKOFF = 0.2
+
+    async def asyncTearDown(self) -> None:
+        await self.transport.disconnect()
+        self.server.close()
+        await self.server.wait_closed()
+
+    async def test_reconnect_attempts_stay_bounded_when_peer_rejects_instantly(
+        self,
+    ) -> None:
+        # Arrange
+        window = 0.5
+        # The backoff must sleep at least 0.05 + 0.1 + 0.2 + 0.2 = 0.55s
+        # (before jitter) after the initial connect, so at most five accepts
+        # fit into the window. Anything near the bound still proves
+        # throttling; the unthrottled bug produced thousands per second.
+        max_expected_accepts = 6
+
+        # Act
+        await self.transport.connect()
+        await asyncio.sleep(window)
+
+        # Assert
+        self.assertLessEqual(
+            self.accept_count,
+            max_expected_accepts,
+            msg=(
+                f"Expected at most {max_expected_accepts} connection attempts "
+                f"in {window}s but the peer accepted {self.accept_count} — "
+                f"the reconnect backoff is not throttling"
+            ),
+        )
+
+
 class TestAdsTcpTransportKeepalive(unittest.TestCase):
     """TCP keepalive / liveness configuration applied to the active socket."""
 

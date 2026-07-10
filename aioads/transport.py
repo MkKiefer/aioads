@@ -211,6 +211,14 @@ class AdsTcpTransport(BaseTransport, ITransport):
     CONNECT_TIMEOUT = 30.0
     RECONNECT_INITIAL_BACKOFF = 1.0
     RECONNECT_MAX_BACKOFF = 30.0
+    RECONNECT_STABILITY_THRESHOLD = 10.0
+    """Seconds a connection must stay up before the reconnect backoff resets.
+
+    The peer may accept the TCP handshake and close immediately (e.g. the
+    Beckhoff single-connection lockout). Such a connect must count as a
+    failure for backoff purposes, otherwise the supervisor spins in a
+    zero-delay connect/drop loop and pins a CPU core.
+    """
 
     # TCP keepalive / liveness tuning.
     # Without these, a half-open connection (peer power-cut, cable pull, NAT
@@ -409,9 +417,16 @@ class AdsTcpTransport(BaseTransport, ITransport):
         trigger competing reconnect attempts. Senders fail fast instead (see
         :meth:`request`), which also respects the Beckhoff single-connection
         backoff/lockout behavior.
+
+        The backoff resets only after a connection stayed up for
+        RECONNECT_STABILITY_THRESHOLD seconds, not on connect success: a peer
+        that accepts the handshake and closes right away would otherwise reset
+        the backoff every cycle and turn this loop into a busy spin.
         """
         backoff = self.RECONNECT_INITIAL_BACKOFF
+        loop = asyncio.get_running_loop()
         while self._state is not ConnectionState.CLOSED:
+            connected_at = loop.time()
             try:
                 await self._read_loop()
             except asyncio.CancelledError:  # pylint: disable=try-except-raise
@@ -426,11 +441,21 @@ class AdsTcpTransport(BaseTransport, ITransport):
             self._state = ConnectionState.RECONNECTING
             await self._teardown_stream(ConnectionError("Connection lost"))
 
+            uptime = loop.time() - connected_at
+            if uptime >= self.RECONNECT_STABILITY_THRESHOLD:
+                backoff = self.RECONNECT_INITIAL_BACKOFF
+            else:
+                self.logger.info(
+                    "Connection only lasted %.1fs, backing off %.1fs before reconnecting",
+                    uptime, backoff,
+                )
+                await asyncio.sleep(backoff + random.uniform(0, backoff))
+                backoff = min(backoff * 2, self.RECONNECT_MAX_BACKOFF)
+
             while self._state is not ConnectionState.CLOSED:
                 try:
                     await self._open()
                     self.logger.info("Reconnected to the remote")
-                    backoff = self.RECONNECT_INITIAL_BACKOFF
                     break
                 except asyncio.CancelledError:  # pylint: disable=try-except-raise
                     raise
