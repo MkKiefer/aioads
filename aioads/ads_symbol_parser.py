@@ -134,6 +134,37 @@ class AdsSymbolParser(ISymbolParser):
 
     def __init__(self, data_types: list[SymbolDataTypeResponse]):
         self._type_lookup = {dt.name: dt for dt in data_types}
+        # Resolution of IEC 61131-3 elementary type names to their wire encoding.
+        self._elementary_type_names: dict[str, AdsSymbolDataType] = {
+            "BOOL": AdsSymbolDataType.BIT,
+            "BIT": AdsSymbolDataType.BIT,
+            "SINT": AdsSymbolDataType.INT8,
+            "USINT": AdsSymbolDataType.UINT8,
+            "BYTE": AdsSymbolDataType.UINT8,
+            "INT": AdsSymbolDataType.INT16,
+            "UINT": AdsSymbolDataType.UINT16,
+            "WORD": AdsSymbolDataType.UINT16,
+            "DINT": AdsSymbolDataType.INT32,
+            "UDINT": AdsSymbolDataType.UINT32,
+            "DWORD": AdsSymbolDataType.UINT32,
+            "LINT": AdsSymbolDataType.INT64,
+            "ULINT": AdsSymbolDataType.UINT64,
+            "LWORD": AdsSymbolDataType.UINT64,
+            "REAL": AdsSymbolDataType.REAL32,
+            "LREAL": AdsSymbolDataType.REAL64,
+            "TIME": AdsSymbolDataType.UINT32,
+            "TOD": AdsSymbolDataType.UINT32,
+            "TIME_OF_DAY": AdsSymbolDataType.UINT32,
+            "DATE": AdsSymbolDataType.UINT32,
+            "DT": AdsSymbolDataType.UINT32,
+            "DATE_AND_TIME": AdsSymbolDataType.UINT32,
+            "LTIME": AdsSymbolDataType.UINT64,
+            "LTOD": AdsSymbolDataType.UINT64,
+            "LTIME_OF_DAY": AdsSymbolDataType.UINT64,
+            "LDATE": AdsSymbolDataType.UINT64,
+            "LDT": AdsSymbolDataType.UINT64,
+            "LDATE_AND_TIME": AdsSymbolDataType.UINT64,
+        }
         self._const_type_names: dict[str, Callable[[str, AdsStream], Any]] = {
             "Tc2_System.T_MaxString": lambda type_name, raw_data: raw_data.read(255)
             .decode("latin-1")
@@ -142,6 +173,7 @@ class AdsSymbolParser(ISymbolParser):
             .decode("latin-1")
             .rstrip("\x00"),
         }
+
         self._primitive_parser = PrimitiveTypeParser()
 
     def update_datatypes(self, data_types: list[SymbolDataTypeResponse]) -> None:
@@ -264,6 +296,13 @@ class AdsSymbolParser(ISymbolParser):
         # Parsing of basetype values
         if data_type != AdsSymbolDataType.BIGTYPE:
             return self._primitive_parser.parse(data_type, type_name, raw_data)
+
+        # TwinCAT 2 reports BIGTYPE for some elementary types
+        # like INT, UINT, REAL, etc. So we need to resolve them by name.
+        if type_name in self._elementary_type_names:
+            return self._primitive_parser.parse(
+                self._elementary_type_names[type_name], type_name, raw_data
+            )
 
         # Parsing of structured types
         if data_type == AdsSymbolDataType.BIGTYPE:

@@ -78,4 +78,5 @@ disable = [
     "too-many-locals",
     "too-few-public-methods",
     "broad-exception-caught",
+    "too-many-return-statements",
 ]
