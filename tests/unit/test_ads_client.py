@@ -72,7 +72,7 @@ class TestAdsClient(unittest.IsolatedAsyncioTestCase):
         self.transport = make_transport()
         self.address = make_ams_address()
         self.parser = AdsSymbolParser([])
-        self.cache = AdsSymbolCache(self.transport, self.address)
+        self.cache = AdsSymbolCache(self.transport, self.address, batch_size=500)
         self.notification = NotificationManager(
             self.transport, self.address, self.cache, self.parser
         )
@@ -82,6 +82,7 @@ class TestAdsClient(unittest.IsolatedAsyncioTestCase):
             parser=self.parser,
             cache=self.cache,
             notification=self.notification,
+            sum_batch_size=500,
         )
 
     async def test_read_symbol_info_by_name_delegates_to_cache(self) -> None:

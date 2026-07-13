@@ -107,6 +107,7 @@ class TestSymbolInfoByNameExSumRead(unittest.IsolatedAsyncioTestCase):
             transport=self.transport,
             ams_address=make_ams_address(),
             symbol_names=["main.a", "main.b"],
+            batch_size=500,
         )
 
     def test_create_sub_commands_one_per_symbol_name(self) -> None:

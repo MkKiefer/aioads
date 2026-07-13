@@ -10,7 +10,10 @@ from aioads.ads_error_codes import AdsErrorCode
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read_write import AdsReadWriteCommand
 from aioads.commands.errors import AdsCommandError
-from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
+from aioads.functions.ads_function import (
+    AdsFunctionSymbolGroup,
+    IAdsFunction,
+)
 from aioads.functions.ads_sum_read_write import AdsSumReadWrite
 from aioads.stream import AdsStream
 from aioads.transport import ITransport
@@ -114,9 +117,12 @@ class SymbolInfo:
             type_name_length,
             comment_length,
         ) = data.read_struct(SymbolInfo.FIXED_STRUCT)
-        symbol_name = data.read(symbol_name_length + 1).rstrip(b"\x00").decode("cp1252")
-        type_name = data.read(type_name_length + 1).rstrip(b"\x00").decode("cp1252")
-        comment = data.read(comment_length + 1).rstrip(b"\x00").decode("cp1252")
+        symbol_name = data.read(symbol_name_length +
+                                1).rstrip(b"\x00").decode("cp1252")
+        type_name = data.read(
+            type_name_length + 1).rstrip(b"\x00").decode("cp1252")
+        comment = data.read(
+            comment_length + 1).rstrip(b"\x00").decode("cp1252")
 
         # Move the stream position to the end of the entry
         data.seek(start_pos + entry_length)
@@ -180,7 +186,8 @@ class SymbolInfoByNameEx(IAdsFunction[SymbolInfo]):
         )
         header, read_payload = await command.request()
         if not header.error_code.ok:
-            raise AdsCommandError(header.error_code, "Failed to read symbol info")
+            raise AdsCommandError(
+                header.error_code, "Failed to read symbol info")
         symbol_info = SymbolInfo.deserialize(read_payload)
         return symbol_info
 
@@ -189,21 +196,21 @@ class SymbolInfoByNameExSumRead(IAdsFunction[list[tuple[AdsErrorCode, SymbolInfo
     """
     This function utilizes the `AdsSumReadWrite` function to
     send multiple `SymbolInfoByNameEx` function calls in a batch.
-    Requests for more symbols than the PLC-side batch limit are
-    transparently split into multiple sum read/write calls.
+    Requests for more symbols than `batch_size` are transparently
+    split into multiple sum read/write calls by `AdsSumReadWrite`.
     """
-
-    BATCH_SIZE = 500
 
     def __init__(
         self,
         transport: ITransport,
         ams_address: AmsAddress,
         symbol_names: list[str],
+        batch_size: int,
     ) -> None:
         self.transport = transport
         self.ams_address = ams_address
         self.symbol_names = symbol_names
+        self.batch_size = batch_size
 
     def create_sub_commands(self) -> list[AdsReadWriteCommand]:
         """
@@ -226,20 +233,19 @@ class SymbolInfoByNameExSumRead(IAdsFunction[list[tuple[AdsErrorCode, SymbolInfo
         return commands
 
     async def execute(self):
-        commands = self.create_sub_commands()
+        command = AdsSumReadWrite(
+            transport=self.transport,
+            ams_address=self.ams_address,
+            commands=self.create_sub_commands(),
+            batch_size=self.batch_size,
+        )
         response = list[tuple[AdsErrorCode, SymbolInfo]]()
-        for batch_start in range(0, len(commands), self.BATCH_SIZE):
-            command = AdsSumReadWrite(
-                transport=self.transport,
-                ams_address=self.ams_address,
-                commands=commands[batch_start : batch_start + self.BATCH_SIZE],
-            )
-            for header, read_payload in await command.execute():
-                # If we have an error and no payload we return a void symbol info
-                # we raise no exception to let the client handle the error for each symbol individually
-                if not header.error_code.ok and read_payload.length == 0:
-                    response.append((header.error_code, SymbolInfo.void()))
-                    continue
-                symbol_info = SymbolInfo.deserialize(read_payload)
-                response.append((header.error_code, symbol_info))
+        for header, read_payload in await command.execute():
+            # If we have an error and no payload we return a void symbol info
+            # we raise no exception to let the client handle the error for each symbol individually
+            if not header.error_code.ok and read_payload.length == 0:
+                response.append((header.error_code, SymbolInfo.void()))
+                continue
+            symbol_info = SymbolInfo.deserialize(read_payload)
+            response.append((header.error_code, symbol_info))
         return response

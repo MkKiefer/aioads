@@ -50,17 +50,24 @@ class AdsClient:
         parser: ISymbolParser,
         cache: AdsSymbolCache,
         notification: NotificationManager,
+        sum_batch_size: int,
     ) -> None:
         self.logger = logging.getLogger(f"{__name__}.'{dst_address.net_id}'")
         self.transport = transport
         self.dst_address = dst_address
         self.parser = parser
+        self.sum_batch_size = sum_batch_size
         self._cache = cache
         self._notification = notification
 
     @classmethod
     def create_tcp(
-        cls, src: AmsAddress, dst: AmsAddress, ip: str, port: int = 48898
+        cls,
+        src: AmsAddress,
+        dst: AmsAddress,
+        ip: str,
+        port: int = 48898,
+        sum_batch_size: int = 500,
     ) -> "AdsClient":
         """
         Create a new ADS client with TCP transport.
@@ -68,11 +75,14 @@ class AdsClient:
         :param dst: The destination AMS address
         :param ip: The target IP address
         :param port: The target port
+        :param sum_batch_size: Maximum commands per ADS sum command (1..500)
         :return: An instance of AdsClient
         """
         parser = AdsSymbolParser([])
         transport = AdsTcpTransport(src_address=src, ip=ip, port=port)
-        cache = AdsSymbolCache(transport=transport, dst_address=dst)
+        cache = AdsSymbolCache(
+            transport=transport, dst_address=dst, batch_size=sum_batch_size
+        )
         notification_manager = NotificationManager(
             transport=transport,
             dst_address=dst,
@@ -85,21 +95,28 @@ class AdsClient:
             dst_address=dst,
             cache=cache,
             notification=notification_manager,
+            sum_batch_size=sum_batch_size,
         )
 
     @classmethod
     def create_from_transport(
-        cls, dst: AmsAddress, transport: ITransport
+        cls,
+        dst: AmsAddress,
+        transport: ITransport,
+        sum_batch_size: int = 500,
     ) -> "AdsClient":
         """
         Create a new ADS client with an existing transport instance.
         :param src: The source AMS address
         :param dst: The destination AMS address
         :param transport: The existing transport instance
+        :param sum_batch_size: Maximum commands per ADS sum command (1..500)
         :return: An instance of AdsClient
         """
         parser = AdsSymbolParser([])
-        cache = AdsSymbolCache(transport=transport, dst_address=dst)
+        cache = AdsSymbolCache(
+            transport=transport, dst_address=dst, batch_size=sum_batch_size
+        )
         notification_manager = NotificationManager(
             transport=transport,
             dst_address=dst,
@@ -112,6 +129,7 @@ class AdsClient:
             dst_address=dst,
             cache=cache,
             notification=notification_manager,
+            sum_batch_size=sum_batch_size,
         )
 
     async def connect(self) -> None:
@@ -255,7 +273,8 @@ class AdsClient:
             exceptions.append(AdsCommandError(error_code, symbol_path))
 
         if exceptions:
-            raise ExceptionGroup("One or more symbol read errors occurred", exceptions)
+            raise ExceptionGroup(
+                "One or more symbol read errors occurred", exceptions)
 
     async def read_symbols_by_names(
         self, symbol_names: set[str], raise_errors: bool = True
@@ -299,6 +318,7 @@ class AdsClient:
                 )
                 for _, info in readable
             ],
+            batch_size=self.sum_batch_size,
         )
         response = await sum_read.execute()
 

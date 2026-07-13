@@ -22,6 +22,7 @@ Like the performance tests, the budgets below are generous upper bounds, not
 benchmarks. A failure means a leak or a pathological regression, not a small
 change. Adjust the constants when they no longer match the test environment.
 """
+import asyncio
 import gc
 import tracemalloc
 
@@ -60,8 +61,29 @@ MEASURED_CYCLES = 5
 CYCLE_GROWTH_MAX_BYTES = 64 * 1024
 
 
-def _heap_bytes() -> int:
-    """Collect garbage and return the currently traced heap size."""
+async def _drain_cancelled_timers() -> None:
+    """
+    Force asyncio to evict cancelled timer handles from its schedule.
+
+    Every transport request arms a `wait_for` timeout; the response arrives
+    long before it fires, so the timer is cancelled — but cancelled
+    `TimerHandle`s stay reachable in the loop's schedule until asyncio's lazy
+    cleanup runs (only once cancelled handles exceed 100 and half the heap).
+    Heap snapshots would otherwise measure a random phase of that saw-tooth
+    (tens of KiB) instead of actual growth. Scheduling and cancelling enough
+    dummy timers pushes the cancelled ratio over the cleanup threshold, so
+    the next loop iteration compacts the schedule deterministically.
+    """
+    loop = asyncio.get_running_loop()
+    handles = [loop.call_later(3600, lambda: None) for _ in range(256)]
+    for handle in handles:
+        handle.cancel()
+    await asyncio.sleep(0)
+
+
+async def _heap_bytes() -> int:
+    """Drain cancelled timers, collect garbage and return the traced heap size."""
+    await _drain_cancelled_timers()
     gc.collect()
     return tracemalloc.get_traced_memory()[0]
 
@@ -102,28 +124,28 @@ class TestMemory(unittest.IsolatedAsyncioTestCase):
 
     async def test_read_symbols_memory_lifecycle(self) -> None:
         """Measure startup cost, runtime growth and cleanup residue."""
-        baseline = _heap_bytes()
+        baseline = await _heap_bytes()
 
         # Part 1: startup - connect (datatype upload) + first cache fill.
         client = create_client(self.config)
         await client.connect()
         await self._read_once(client)
-        startup_cost = _heap_bytes() - baseline
+        startup_cost = await _heap_bytes() - baseline
 
         # Part 2: runtime - steady-state growth and transient peak.
         for _ in range(WARMUP_READS):
             await self._read_once(client)
-        before_reads = _heap_bytes()
+        before_reads = await _heap_bytes()
         tracemalloc.reset_peak()
         for _ in range(MEASURED_READS):
             await self._read_once(client)
         runtime_peak = tracemalloc.get_traced_memory()[1] - before_reads
-        runtime_growth = _heap_bytes() - before_reads
+        runtime_growth = await _heap_bytes() - before_reads
 
         # Part 3: cleanup - disconnect, drop the client, measure the residue.
         await client.disconnect()
         del client
-        residue = _heap_bytes() - baseline
+        residue = await _heap_bytes() - baseline
 
         print(
             f"\nMemory lifecycle report"
@@ -173,11 +195,11 @@ class TestMemory(unittest.IsolatedAsyncioTestCase):
         # The first cycle absorbs one-time allocations that live for the
         # rest of the interpreter (loggers, enum caches, interned strings).
         await one_cycle()
-        baseline = _heap_bytes()
+        baseline = await _heap_bytes()
 
         for _ in range(MEASURED_CYCLES):
             await one_cycle()
-        growth = _heap_bytes() - baseline
+        growth = await _heap_bytes() - baseline
 
         print(
             f"\nConnect cycle report: {MEASURED_CYCLES} cycles grew the heap "

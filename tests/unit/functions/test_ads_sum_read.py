@@ -3,6 +3,8 @@
 import unittest
 from unittest.mock import AsyncMock
 
+from parameterized import parameterized
+
 from aioads.commands.ads_read import AdsReadCommand
 from aioads.functions.ads_sum_read import AdsSumRead
 from tests.builders import (
@@ -24,9 +26,12 @@ class TestAdsSumRead(unittest.IsolatedAsyncioTestCase):
             AdsReadCommand(self.transport, self.address, 0x4020, 8, 2),
         ]
 
-    def _function(self, commands) -> AdsSumRead:
+    def _function(self, commands, batch_size: int = 500) -> AdsSumRead:
         return AdsSumRead(
-            transport=self.transport, ams_address=self.address, commands=commands
+            transport=self.transport,
+            ams_address=self.address,
+            commands=commands,
+            batch_size=batch_size,
         )
 
     def test_serialize_concatenates_each_command_payload(self) -> None:
@@ -34,12 +39,28 @@ class TestAdsSumRead(unittest.IsolatedAsyncioTestCase):
         function = self._function(self.commands)
 
         # Act
-        result = function.serialize()
+        result = function.serialize(self.commands)
 
         # Assert
         self.assertEqual(
             result, self.commands[0].serialize() + self.commands[1].serialize()
         )
+
+    @parameterized.expand([
+        ("zero", 0),
+        ("above_maximum", 501),
+    ])
+    async def test_execute_batch_size_out_of_range_raises_value_error(
+        self, _name: str, batch_size: int
+    ) -> None:
+        # Arrange
+        function = self._function(self.commands, batch_size=batch_size)
+
+        # Act / Assert
+        with self.assertRaises(ValueError) as ctx:
+            await function.execute()
+
+        self.assertIn("between 1 and 500", str(ctx.exception))
 
     async def test_execute_empty_commands_raises_value_error(self) -> None:
         # Arrange
@@ -51,16 +72,32 @@ class TestAdsSumRead(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("At least one command", str(ctx.exception))
 
-    async def test_execute_too_many_commands_raises_value_error(self) -> None:
-        # Arrange
-        many = [AdsReadCommand(self.transport, self.address, 0, 0, 1) for _ in range(501)]
-        function = self._function(many)
+    async def test_execute_splits_commands_into_batches(self) -> None:
+        # Arrange: 3 commands with batch_size 2 -> one request with 2 commands,
+        # one request with the remaining command
+        commands = self.commands + [
+            AdsReadCommand(self.transport, self.address, 0x4020, 16, 1)
+        ]
+        first_batch_body = (
+            (0).to_bytes(4, "little") + (0).to_bytes(4, "little")
+            + b"\x01\x02\x03\x04" + b"\xaa\xbb"
+        )
+        second_batch_body = (0).to_bytes(4, "little") + b"\xcc"
+        self.transport.request = AsyncMock(
+            side_effect=[
+                (make_ams_header(), make_stream(make_read_payload(first_batch_body))),
+                (make_ams_header(), make_stream(make_read_payload(second_batch_body))),
+            ]
+        )
+        function = self._function(commands, batch_size=2)
 
-        # Act / Assert
-        with self.assertRaises(ValueError) as ctx:
-            await function.execute()
+        # Act
+        response = await function.execute()
 
-        self.assertIn("maximum is 500", str(ctx.exception))
+        # Assert
+        self.assertEqual(self.transport.request.await_count, 2)
+        self.assertEqual(len(response), 3)
+        self.assertEqual(response[2][1].read(1), b"\xcc")
 
     async def test_execute_returns_response_and_data_per_command(self) -> None:
         # Arrange: 2 error codes (4 bytes each) followed by 4 + 2 data bytes
