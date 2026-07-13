@@ -297,7 +297,8 @@ class AdsSymbolParser(ISymbolParser):
         if data_type != AdsSymbolDataType.BIGTYPE:
             return self._primitive_parser.parse(data_type, type_name, raw_data)
 
-        # TwinCAT 2 reports BIGTYPE for some elementary types like INT, UINT, REAL, etc. So we need to resolve them by name.
+        # TwinCAT 2 reports BIGTYPE for some elementary types
+        # like INT, UINT, REAL, etc. So we need to resolve them by name.
         if type_name in self._elementary_type_names:
             return self._primitive_parser.parse(
                 self._elementary_type_names[type_name], type_name, raw_data
