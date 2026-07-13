@@ -60,6 +60,7 @@ class TestAdsSymbolCache(unittest.IsolatedAsyncioTestCase):
             transport=self.transport,
             dst_address=self.address,
             ttl_seconds=3600,
+            batch_size=500,
         )
         self.info = make_symbol_info("MAIN.VALUE")
 
@@ -98,7 +99,9 @@ class TestAdsSymbolCache(unittest.IsolatedAsyncioTestCase):
     async def test_read_symbol_info_by_name_expired_entry_refetches(self) -> None:
         # Arrange — zero TTL means an entry is never valid on the next lookup.
         # A fresh stream is built per call so the second fetch reads from the start.
-        cache = AdsSymbolCache(self.transport, self.address, ttl_seconds=0)
+        cache = AdsSymbolCache(
+            self.transport, self.address, ttl_seconds=0, batch_size=500
+        )
         self.transport.request = AsyncMock(
             side_effect=lambda **kwargs: single_read_response(self.info)
         )
@@ -149,7 +152,9 @@ class TestAdsSymbolCacheMonitor(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self) -> None:
         self.transport = make_transport()
-        self.cache = AdsSymbolCache(self.transport, make_ams_address())
+        self.cache = AdsSymbolCache(
+            self.transport, make_ams_address(), batch_size=500
+        )
         # Symbol-table-version read keeps the monitor loop body from erroring.
         self.transport.request = AsyncMock(
             return_value=(make_ams_header(), make_stream(make_read_payload(b"\x01")))

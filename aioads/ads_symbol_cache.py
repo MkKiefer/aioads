@@ -29,12 +29,14 @@ class AdsSymbolCache:
         self,
         transport: ITransport,
         dst_address: AmsAddress,
+        batch_size: int,
         ttl_seconds: int = 21600,
     ) -> None:
         self._logger = logging.getLogger(f"{__name__}.'{dst_address.net_id}'")
         self._transport = transport
         self._dst_address = dst_address
         self._ttl_seconds = ttl_seconds
+        self._batch_size = batch_size
         self._cache: dict[str, tuple[int, AdsErrorCode, SymbolInfo]] = {}
         self._cache_monitor_task: asyncio.Task[None] | None = None
 
@@ -175,6 +177,7 @@ class AdsSymbolCache:
                 transport=self._transport,
                 ams_address=self._dst_address,
                 symbol_names=request_list,
+                batch_size=self._batch_size,
             )
             response = await function.execute()
             for (error, symbol_info), symbol_name in zip(

@@ -64,7 +64,7 @@ class TestNotificationManager(unittest.IsolatedAsyncioTestCase):
         self.transport = make_transport()
         self.address = make_ams_address()
         # Real typed collaborators; only the methods under control are replaced.
-        self.cache = AdsSymbolCache(self.transport, self.address)
+        self.cache = AdsSymbolCache(self.transport, self.address, batch_size=500)
         self.parser = AdsSymbolParser([])
         self.manager = NotificationManager(
             transport=self.transport,
