@@ -1,6 +1,6 @@
 [project]
 name = "aioads"
-version = "0.1.0.dev8"
+version = "0.1.0.dev10"
 description = "An asynchronous Python library for communicating with Beckhoff TwinCAT PLCs"
 authors = [
     { name = "MkKiefer", email = "102972583+MkKiefer@users.noreply.github.com" },
