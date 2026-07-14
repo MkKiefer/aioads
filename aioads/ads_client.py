@@ -1,5 +1,6 @@
 """ADS Client for communicating with ADS devices asynchronously."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from aioads.ads_symbol_parser import ISymbolParser
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_add_notification import TransmissionMode
 from aioads.commands.ads_read import AdsReadCommand
+from aioads.commands.ads_read import AdsReadResponse
 from aioads.commands.ads_read_state import ReadStateCommand
 from aioads.commands.errors import AdsCommandError
 from aioads.functions.ads_enable_route import AdsEnableRoute
@@ -24,6 +26,7 @@ from aioads.functions.ads_symbol_datatype_upload import AdsSymbolDataTypeUpload
 from aioads.functions.ads_symbol_info_by_name_ex import SymbolInfo
 from aioads.functions.ads_symbol_upload import AdsSymbolUpload
 from aioads.functions.ads_symbol_upload_info import AdsSymbolUploadInfo2
+from aioads.stream import AdsStream
 from aioads.transport import AdsTcpTransport
 from aioads.transport import ITransport
 
@@ -292,7 +295,7 @@ class AdsClient:
         # Pre-seed the result with lookup errors so the output preserves the
         # requested order; successful entries are overwritten after the read.
         # Symbols with a failed lookup cannot be read: their idx_group/offset
-        # would misalign the bulk response.
+        # would misaligne the bulk response.
         output: dict[str, SymbolReadResult] = {
             name: SymbolReadResult(error_code, None)
             for name, (error_code, _) in symbol_infos.items()
@@ -322,6 +325,22 @@ class AdsClient:
         )
         response = await sum_read.execute()
 
+        # Parsing is pure-Python and O(total payload size); run it off the
+        # event loop so large bulk reads don't block other tasks.
+        parsed = await asyncio.to_thread(
+            self._parse_sum_read_response, readable, response)
+        output.update(parsed)
+        return output
+
+    def _parse_sum_read_response(
+        self,
+        readable: list[tuple[str, SymbolInfo]],
+        response: list[tuple[AdsReadResponse, AdsStream]],
+    ) -> dict[str, SymbolReadResult]:
+        """
+        Parse the payloads of a bulk read into symbol values.
+        """
+        output: dict[str, SymbolReadResult] = {}
         for (name, info), (read_response, resp_payload) in zip(
             readable, response, strict=True
         ):
@@ -336,7 +355,6 @@ class AdsClient:
                     raw_data=resp_payload,
                 ),
             )
-
         return output
 
     @asynccontextmanager
