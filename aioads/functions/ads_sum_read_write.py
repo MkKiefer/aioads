@@ -116,6 +116,7 @@ class AdsSumReadWrite(IAdsFunction[list[tuple[AdsReadResponse, AdsStream]]]):
         read_payload: AdsStream,
         commands: list[AdsReadWriteCommand],
     ) -> list[tuple[AdsReadResponse, AdsStream]]:
+        """Deserialize a sum-read-write response payload into per-command result pairs."""
         read_response_stream = read_payload.sub_stream(
             len(commands) * AdsReadResponse.STRUCT_DEF.size
         )

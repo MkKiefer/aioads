@@ -1,3 +1,5 @@
+"""Dispatcher that offloads deserialization to a thread pool for large payloads."""
+
 import asyncio
 from collections.abc import Callable
 import logging
@@ -22,28 +24,28 @@ class DeserializeDispatcher:
         self._logger = logging.getLogger(f"{__name__}.DeserializeDispatcher")
         self.offload_size = offload_size
 
-    async def single[T](
-        self, callable: DeserializeSingleCallable[T], data: AdsStream
-    ) -> T:
+    async def single[S](self, fn: DeserializeSingleCallable[S], data: AdsStream) -> S:
+        """Run fn in a thread if the remaining data exceeds the offload threshold."""
         remaining_length = data.length - data.tell()
         if remaining_length >= self.offload_size:
             self._logger.debug(
-                f"Offloading deserialization of {remaining_length} bytes to thread"
+                "Offloading deserialization of %d bytes to thread", remaining_length
             )
-            return await asyncio.to_thread(callable, data)
+            return await asyncio.to_thread(fn, data)
         # Parsing of smaller chunks is done in the asyncio loop to avoid the overhead of thread switching
-        return callable(data)
+        return fn(data)
 
-    async def multiple[T](
+    async def multiple[M](
         self,
-        callable: DeserializeMultipleCallable[T],
+        fn: DeserializeMultipleCallable[M],
         data: list[tuple[AdsReadResponse, AdsStream]],
-    ) -> T:
+    ) -> M:
+        """Run fn in a thread if the total remaining data exceeds the offload threshold."""
         total_remaining = sum(stream.length - stream.tell() for _, stream in data)
         if total_remaining >= self.offload_size:
             self._logger.debug(
-                f"Offloading deserialization of {total_remaining} bytes to thread"
+                "Offloading deserialization of %d bytes to thread", total_remaining
             )
-            return await asyncio.to_thread(callable, data)
+            return await asyncio.to_thread(fn, data)
         # Parsing of smaller batches is done in the asyncio loop to avoid the overhead of thread switching
-        return callable(data)
+        return fn(data)

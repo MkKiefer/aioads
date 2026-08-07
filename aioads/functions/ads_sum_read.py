@@ -5,7 +5,6 @@ sending multiple `AdsReadCommand` in a single command
 https://infosys.beckhoff.com/english.php?content=../content/1033/tc3_adsdll2/124830987.html&id=
 """
 
-from email import header
 from struct import Struct
 from typing import Final
 from aioads.ads_error_codes import AdsErrorCode
@@ -67,6 +66,7 @@ class AdsSumRead(IAdsFunction[list[tuple[AdsReadResponse, AdsStream]]]):
     def deserialize(
         self, read_payload: AdsStream, commands: list[AdsReadCommand]
     ) -> list[tuple[AdsReadResponse, AdsStream]]:
+        """Deserialize a sum-read response payload into per-command result pairs."""
 
         error_stream = read_payload.sub_stream(
             # 4 bytes per error code
