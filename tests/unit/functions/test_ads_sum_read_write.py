@@ -8,6 +8,7 @@ from parameterized import parameterized
 from aioads.commands.ads_read import AdsReadResponse
 from aioads.commands.ads_read_write import AdsReadWriteCommand
 from aioads.ads_error_codes import AdsErrorCode
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_sum_read_write import AdsSumReadWrite
 from tests.builders import (
     make_ams_address,
@@ -23,6 +24,7 @@ class TestAdsSumReadWrite(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.transport = make_transport()
         self.address = make_ams_address()
+        self.dispatcher = DeserializeDispatcher(offload_size=1024 * 1024)
         self.commands = [
             AdsReadWriteCommand(self.transport, self.address, 0xF009, 0, 4, 2, b"ab"),
             AdsReadWriteCommand(self.transport, self.address, 0xF009, 0, 2, 3, b"xyz"),
@@ -31,6 +33,7 @@ class TestAdsSumReadWrite(unittest.IsolatedAsyncioTestCase):
     def _function(self, commands, batch_size: int = 500) -> AdsSumReadWrite:
         return AdsSumReadWrite(
             transport=self.transport,
+            dispatcher=self.dispatcher,
             ams_address=self.address,
             commands=commands,
             batch_size=batch_size,
@@ -62,10 +65,12 @@ class TestAdsSumReadWrite(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("At least one command", str(ctx.exception))
 
-    @parameterized.expand([
-        ("zero", 0),
-        ("above_maximum", 501),
-    ])
+    @parameterized.expand(
+        [
+            ("zero", 0),
+            ("above_maximum", 501),
+        ]
+    )
     async def test_execute_batch_size_out_of_range_raises_value_error(
         self, _name: str, batch_size: int
     ) -> None:

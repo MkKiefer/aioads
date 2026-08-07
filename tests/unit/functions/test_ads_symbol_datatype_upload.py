@@ -3,6 +3,7 @@
 import unittest
 from unittest.mock import AsyncMock
 
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_symbol_datatype_by_name import SymbolDataTypeResponse
 from aioads.functions.ads_symbol_datatype_upload import AdsSymbolDataTypeUpload
 from aioads.functions.ads_symbol_info_by_name_ex import (
@@ -41,19 +42,24 @@ class TestAdsSymbolDataTypeUpload(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.transport = make_transport()
         self.address = make_ams_address()
+        self.dispatcher = DeserializeDispatcher(offload_size=1024 * 1024)
         self.datatypes = [make_datatype("TypeA"), make_datatype("TypeB")]
         self.blob = b"".join(d.serialize() for d in self.datatypes)
 
     def test_serialize_returns_empty_payload(self) -> None:
         # Arrange
-        function = AdsSymbolDataTypeUpload(self.transport, self.address, dt_size=len(self.blob))
+        function = AdsSymbolDataTypeUpload(
+            self.transport, self.dispatcher, self.address, dt_size=len(self.blob)
+        )
 
         # Act / Assert
         self.assertEqual(function.serialize(), b"")
 
     async def test_execute_deserializes_all_datatypes(self) -> None:
         # Arrange
-        function = AdsSymbolDataTypeUpload(self.transport, self.address, dt_size=len(self.blob))
+        function = AdsSymbolDataTypeUpload(
+            self.transport, self.dispatcher, self.address, dt_size=len(self.blob)
+        )
         self.transport.request = AsyncMock(
             return_value=(make_ams_header(), make_stream(make_read_payload(self.blob)))
         )
@@ -66,7 +72,9 @@ class TestAdsSymbolDataTypeUpload(unittest.IsolatedAsyncioTestCase):
 
     async def test_execute_size_mismatch_raises_value_error(self) -> None:
         # Arrange
-        function = AdsSymbolDataTypeUpload(self.transport, self.address, dt_size=len(self.blob) + 1)
+        function = AdsSymbolDataTypeUpload(
+            self.transport, self.dispatcher, self.address, dt_size=len(self.blob) + 1
+        )
         self.transport.request = AsyncMock(
             return_value=(make_ams_header(), make_stream(make_read_payload(self.blob)))
         )

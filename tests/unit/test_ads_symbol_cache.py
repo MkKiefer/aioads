@@ -7,6 +7,7 @@ from aioads.ads_symbol_cache import AdsSymbolCache
 from aioads.commands.ads_read import AdsReadResponse
 from aioads.ads_error_codes import AdsErrorCode
 from aioads.commands.errors import AdsCommandError
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_symbol_info_by_name_ex import (
     AdsSymbolDataType,
     AdsSymbolFlags,
@@ -46,7 +47,9 @@ def bulk_read_response(infos, error_code: int = 0):
     bodies = b""
     for info in infos:
         body = info.serialize()
-        headers += AdsReadResponse(AdsErrorCode(error_code), length=len(body)).serialize()
+        headers += AdsReadResponse(
+            AdsErrorCode(error_code), length=len(body)
+        ).serialize()
         bodies += body
     return (make_ams_header(), make_stream(make_read_payload(headers + bodies)))
 
@@ -58,6 +61,7 @@ class TestAdsSymbolCache(unittest.IsolatedAsyncioTestCase):
         self.address = make_ams_address()
         self.cache = AdsSymbolCache(
             transport=self.transport,
+            dispatcher=DeserializeDispatcher(offload_size=1024 * 1024),
             dst_address=self.address,
             ttl_seconds=3600,
             batch_size=500,
@@ -100,7 +104,11 @@ class TestAdsSymbolCache(unittest.IsolatedAsyncioTestCase):
         # Arrange — zero TTL means an entry is never valid on the next lookup.
         # A fresh stream is built per call so the second fetch reads from the start.
         cache = AdsSymbolCache(
-            self.transport, self.address, ttl_seconds=0, batch_size=500
+            self.transport,
+            DeserializeDispatcher(offload_size=1024 * 1024),
+            self.address,
+            ttl_seconds=0,
+            batch_size=500,
         )
         self.transport.request = AsyncMock(
             side_effect=lambda **kwargs: single_read_response(self.info)
@@ -134,7 +142,9 @@ class TestAdsSymbolCache(unittest.IsolatedAsyncioTestCase):
         # Assert — single read served from cache, transport hit only by the bulk read
         self.transport.request.assert_called_once()
 
-    async def test_read_symbol_info_by_name_cached_error_raises_command_error(self) -> None:
+    async def test_read_symbol_info_by_name_cached_error_raises_command_error(
+        self,
+    ) -> None:
         # Arrange — bulk read caches the symbol with a device error code
         self.transport.request = AsyncMock(
             return_value=bulk_read_response([self.info], error_code=1808)
@@ -153,7 +163,10 @@ class TestAdsSymbolCacheMonitor(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.transport = make_transport()
         self.cache = AdsSymbolCache(
-            self.transport, make_ams_address(), batch_size=500
+            self.transport,
+            DeserializeDispatcher(offload_size=1024 * 1024),
+            make_ams_address(),
+            batch_size=500,
         )
         # Symbol-table-version read keeps the monitor loop body from erroring.
         self.transport.request = AsyncMock(

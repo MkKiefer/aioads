@@ -3,6 +3,7 @@
 import unittest
 from unittest.mock import AsyncMock
 
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_symbol_info_by_name_ex import (
     AdsSymbolDataType,
     AdsSymbolFlags,
@@ -73,6 +74,7 @@ class TestSymbolInfoByNameEx(unittest.IsolatedAsyncioTestCase):
         self.transport = make_transport()
         self.function = SymbolInfoByNameEx(
             transport=self.transport,
+            dispatcher=DeserializeDispatcher(offload_size=1024 * 1024),
             ams_address=make_ams_address(),
             symbol_name="main.value",
         )
@@ -105,6 +107,7 @@ class TestSymbolInfoByNameExSumRead(unittest.IsolatedAsyncioTestCase):
         self.transport = make_transport()
         self.function = SymbolInfoByNameExSumRead(
             transport=self.transport,
+            dispatcher=DeserializeDispatcher(offload_size=1024 * 1024),
             ams_address=make_ams_address(),
             symbol_names=["main.a", "main.b"],
             batch_size=500,
@@ -131,9 +134,12 @@ class TestSymbolInfoByNameExSumRead(unittest.IsolatedAsyncioTestCase):
         body_a = info_a.serialize()
         body_b = info_b.serialize()
         sum_body = (
-            (0).to_bytes(4, "little") + len(body_a).to_bytes(4, "little")
-            + (0).to_bytes(4, "little") + len(body_b).to_bytes(4, "little")
-            + body_a + body_b
+            (0).to_bytes(4, "little")
+            + len(body_a).to_bytes(4, "little")
+            + (0).to_bytes(4, "little")
+            + len(body_b).to_bytes(4, "little")
+            + body_a
+            + body_b
         )
         payload = make_read_payload(sum_body)
         self.transport.request = AsyncMock(

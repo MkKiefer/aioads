@@ -9,6 +9,7 @@ from aioads.ads_error_codes import AdsErrorCode
 from aioads.ads_symbol_cache import AdsSymbolCache
 from aioads.ads_symbol_parser import AdsSymbolParser
 from aioads.ads_notifications import NotificationManager
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.commands.ads_read_state import AdsDeviceState, AdsState, AdsStateResponse
 from aioads.commands.ads_write import AdsWriteResponse
 from aioads.functions.ads_symbol_info_by_name_ex import (
@@ -72,12 +73,16 @@ class TestAdsClient(unittest.IsolatedAsyncioTestCase):
         self.transport = make_transport()
         self.address = make_ams_address()
         self.parser = AdsSymbolParser([])
-        self.cache = AdsSymbolCache(self.transport, self.address, batch_size=500)
+        self.dispatcher = DeserializeDispatcher(offload_size=1024 * 1024)
+        self.cache = AdsSymbolCache(
+            self.transport, self.dispatcher, self.address, batch_size=500
+        )
         self.notification = NotificationManager(
             self.transport, self.address, self.cache, self.parser
         )
         self.client = AdsClient(
             transport=self.transport,
+            dispatcher=self.dispatcher,
             dst_address=self.address,
             parser=self.parser,
             cache=self.cache,
@@ -95,14 +100,12 @@ class TestAdsClient(unittest.IsolatedAsyncioTestCase):
 
         # Assert
         self.assertEqual(result, info)
-        self.cache.read_symbol_info_by_name.assert_awaited_once_with(
-            "MAIN.VALUE")
+        self.cache.read_symbol_info_by_name.assert_awaited_once_with("MAIN.VALUE")
 
     async def test_read_symbol_infos_by_names_delegates_to_cache(self) -> None:
         # Arrange
         expected = {"MAIN.VALUE": (AdsErrorCode(0), make_symbol_info())}
-        self.cache.read_symbol_infos_by_names = AsyncMock(
-            return_value=expected)
+        self.cache.read_symbol_infos_by_names = AsyncMock(return_value=expected)
 
         # Act
         result = await self.client.read_symbol_infos_by_names({"MAIN.VALUE"})
@@ -112,8 +115,9 @@ class TestAdsClient(unittest.IsolatedAsyncioTestCase):
 
     async def test_read_state_returns_state_response(self) -> None:
         # Arrange
-        payload = AdsStateResponse(AdsErrorCode(
-            0), AdsState.RUN, AdsDeviceState.OKAY).serialize()
+        payload = AdsStateResponse(
+            AdsErrorCode(0), AdsState.RUN, AdsDeviceState.OKAY
+        ).serialize()
         self.transport.request = AsyncMock(
             return_value=(make_ams_header(), make_stream(payload))
         )
@@ -126,11 +130,12 @@ class TestAdsClient(unittest.IsolatedAsyncioTestCase):
 
     async def test_read_symbol_by_name_returns_parsed_value(self) -> None:
         # Arrange
-        self.cache.read_symbol_info_by_name = AsyncMock(
-            return_value=make_symbol_info())
+        self.cache.read_symbol_info_by_name = AsyncMock(return_value=make_symbol_info())
         self.transport.request = AsyncMock(
-            return_value=(make_ams_header(), make_stream(
-                make_read_payload(struct.pack("<i", 99))))
+            return_value=(
+                make_ams_header(),
+                make_stream(make_read_payload(struct.pack("<i", 99))),
+            )
         )
 
         # Act
@@ -142,8 +147,10 @@ class TestAdsClient(unittest.IsolatedAsyncioTestCase):
     async def test_enable_route_success_does_not_raise(self) -> None:
         # Arrange
         self.transport.request = AsyncMock(
-            return_value=(make_ams_header(), make_stream(
-                AdsWriteResponse(AdsErrorCode(0)).serialize()))
+            return_value=(
+                make_ams_header(),
+                make_stream(AdsWriteResponse(AdsErrorCode(0)).serialize()),
+            )
         )
 
         # Act
@@ -157,8 +164,10 @@ class TestAdsClient(unittest.IsolatedAsyncioTestCase):
         from aioads.commands.errors import AdsCommandError
 
         self.transport.request = AsyncMock(
-            return_value=(make_ams_header(), make_stream(
-                AdsWriteResponse(AdsErrorCode(1793)).serialize()))
+            return_value=(
+                make_ams_header(),
+                make_stream(AdsWriteResponse(AdsErrorCode(1793)).serialize()),
+            )
         )
 
         # Act / Assert
@@ -170,8 +179,9 @@ class TestAdsClient(unittest.IsolatedAsyncioTestCase):
     async def test_read_symbols_by_names_with_symbol_error_raises_group(self) -> None:
         # Arrange — cache reports one symbol with a device error
         self.cache.read_symbol_infos_by_names = AsyncMock(
-            return_value={"MAIN.BAD": (AdsErrorCode(
-                1808), make_symbol_info("MAIN.BAD"))}
+            return_value={
+                "MAIN.BAD": (AdsErrorCode(1808), make_symbol_info("MAIN.BAD"))
+            }
         )
 
         # Act / Assert
