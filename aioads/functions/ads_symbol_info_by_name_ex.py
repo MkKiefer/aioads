@@ -253,6 +253,7 @@ class SymbolInfoByNameExSumRead(IAdsFunction[list[tuple[AdsErrorCode, SymbolInfo
     async def execute(self):
         command = AdsSumReadWrite(
             transport=self.transport,
+            dispatcher=self.dispatcher,
             ams_address=self.ams_address,
             commands=self.create_sub_commands(),
             batch_size=self.batch_size,

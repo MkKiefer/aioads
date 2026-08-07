@@ -54,6 +54,7 @@ from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read import AdsReadResponse
 from aioads.commands.ads_read_write import AdsReadWriteCommand
 from aioads.commands.errors import AdsCommandError
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_function import (
     AdsFunctionSymbolGroup,
     IAdsFunction,
@@ -74,11 +75,13 @@ class AdsSumReadWrite(IAdsFunction[list[tuple[AdsReadResponse, AdsStream]]]):
     def __init__(
         self,
         transport: ITransport,
+        dispatcher: DeserializeDispatcher,
         ams_address: AmsAddress,
         commands: list[AdsReadWriteCommand],
         batch_size: int,
     ) -> None:
         self.transport = transport
+        self.dispatcher = dispatcher
         self.ams_address = ams_address
         self.commands = commands
         self.batch_size = batch_size
@@ -98,15 +101,30 @@ class AdsSumReadWrite(IAdsFunction[list[tuple[AdsReadResponse, AdsStream]]]):
         :return: A list of tuples of (AdsReadResponse, AdsStream) for each command.
         """
         if len(self.commands) == 0:
-            raise ValueError(
-                "At least one command is required for ADS Sum Read/Write")
+            raise ValueError("At least one command is required for ADS Sum Read/Write")
         if self.batch_size <= 0 or self.batch_size > 500:
             raise ValueError("Batch size must be between 1 and 500")
 
         response: list[tuple[AdsReadResponse, AdsStream]] = []
         for batch_start in range(0, len(self.commands), self.batch_size):
-            batch = self.commands[batch_start: batch_start + self.batch_size]
+            batch = self.commands[batch_start : batch_start + self.batch_size]
             response.extend(await self._execute_batch(batch))
+        return response
+
+    def deserialize(
+        self,
+        read_payload: AdsStream,
+        commands: list[AdsReadWriteCommand],
+    ) -> list[tuple[AdsReadResponse, AdsStream]]:
+        read_response_stream = read_payload.sub_stream(
+            len(commands) * AdsReadResponse.STRUCT_DEF.size
+        )
+        response: list[tuple[AdsReadResponse, AdsStream]] = []
+        for _ in commands:
+            read_response = AdsReadResponse.deserialize(read_response_stream)
+            response.append(
+                (read_response, read_payload.sub_stream(read_response.length))
+            )
         return response
 
     async def _execute_batch(
@@ -136,14 +154,6 @@ class AdsSumReadWrite(IAdsFunction[list[tuple[AdsReadResponse, AdsStream]]]):
             raise AdsCommandError(
                 header.error_code, "Failed to execute ADS Sum Read/Write"
             )
-        read_response_stream = read_payload.sub_stream(
-            len(commands) * AdsReadResponse.STRUCT_DEF.size
+        return await self.dispatcher.single(
+            lambda payload: self.deserialize(payload, commands), read_payload
         )
-
-        response: list[tuple[AdsReadResponse, AdsStream]] = []
-        for _ in commands:
-            read_response = AdsReadResponse.deserialize(read_response_stream)
-            response.append(
-                (read_response, read_payload.sub_stream(read_response.length))
-            )
-        return response
