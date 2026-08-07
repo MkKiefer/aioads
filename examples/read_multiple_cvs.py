@@ -8,7 +8,7 @@ from aioads.ads_client import AdsClient
 from aioads.ams_address import AmsAddress
 from aioads.ams_service_port import AmsServicePort
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 
