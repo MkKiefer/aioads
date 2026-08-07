@@ -8,8 +8,10 @@ from struct import Struct
 from typing import ClassVar
 from aioads.ads_error_codes import AdsErrorCode
 from aioads.ams_address import AmsAddress
+from aioads.commands.ads_read import AdsReadResponse
 from aioads.commands.ads_read_write import AdsReadWriteCommand
 from aioads.commands.errors import AdsCommandError
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_function import (
     AdsFunctionSymbolGroup,
     IAdsFunction,
@@ -117,12 +119,9 @@ class SymbolInfo:
             type_name_length,
             comment_length,
         ) = data.read_struct(SymbolInfo.FIXED_STRUCT)
-        symbol_name = data.read(symbol_name_length +
-                                1).rstrip(b"\x00").decode("cp1252")
-        type_name = data.read(
-            type_name_length + 1).rstrip(b"\x00").decode("cp1252")
-        comment = data.read(
-            comment_length + 1).rstrip(b"\x00").decode("cp1252")
+        symbol_name = data.read(symbol_name_length + 1).rstrip(b"\x00").decode("cp1252")
+        type_name = data.read(type_name_length + 1).rstrip(b"\x00").decode("cp1252")
+        comment = data.read(comment_length + 1).rstrip(b"\x00").decode("cp1252")
 
         # Move the stream position to the end of the entry
         data.seek(start_pos + entry_length)
@@ -161,11 +160,13 @@ class SymbolInfoByNameEx(IAdsFunction[SymbolInfo]):
     def __init__(
         self,
         transport: ITransport,
+        dispatcher: DeserializeDispatcher,
         ams_address: AmsAddress,
         symbol_name: str,
     ) -> None:
         self.transport = transport
         self.ams_address = ams_address
+        self.dispatcher = dispatcher
         self.symbol_name = symbol_name
 
     def serialize(self) -> bytes:
@@ -186,10 +187,8 @@ class SymbolInfoByNameEx(IAdsFunction[SymbolInfo]):
         )
         header, read_payload = await command.request()
         if not header.error_code.ok:
-            raise AdsCommandError(
-                header.error_code, "Failed to read symbol info")
-        symbol_info = SymbolInfo.deserialize(read_payload)
-        return symbol_info
+            raise AdsCommandError(header.error_code, "Failed to read symbol info")
+        return await self.dispatcher.single(SymbolInfo.deserialize, read_payload)
 
 
 class SymbolInfoByNameExSumRead(IAdsFunction[list[tuple[AdsErrorCode, SymbolInfo]]]):
@@ -203,11 +202,13 @@ class SymbolInfoByNameExSumRead(IAdsFunction[list[tuple[AdsErrorCode, SymbolInfo
     def __init__(
         self,
         transport: ITransport,
+        dispatcher: DeserializeDispatcher,
         ams_address: AmsAddress,
         symbol_names: list[str],
         batch_size: int,
     ) -> None:
         self.transport = transport
+        self.dispatcher = dispatcher
         self.ams_address = ams_address
         self.symbol_names = symbol_names
         self.batch_size = batch_size
@@ -232,15 +233,14 @@ class SymbolInfoByNameExSumRead(IAdsFunction[list[tuple[AdsErrorCode, SymbolInfo
             commands.append(command)
         return commands
 
-    async def execute(self):
-        command = AdsSumReadWrite(
-            transport=self.transport,
-            ams_address=self.ams_address,
-            commands=self.create_sub_commands(),
-            batch_size=self.batch_size,
-        )
+    def deserialize(
+        self, streams: list[tuple[AdsReadResponse, AdsStream]]
+    ) -> list[tuple[AdsErrorCode, SymbolInfo]]:
+        """
+        Decode the response payload to a list of `SymbolInfo`
+        """
         response = list[tuple[AdsErrorCode, SymbolInfo]]()
-        for header, read_payload in await command.execute():
+        for header, read_payload in streams:
             # If we have an error and no payload we return a void symbol info
             # we raise no exception to let the client handle the error for each symbol individually
             if not header.error_code.ok and read_payload.length == 0:
@@ -249,3 +249,14 @@ class SymbolInfoByNameExSumRead(IAdsFunction[list[tuple[AdsErrorCode, SymbolInfo
             symbol_info = SymbolInfo.deserialize(read_payload)
             response.append((header.error_code, symbol_info))
         return response
+
+    async def execute(self):
+        command = AdsSumReadWrite(
+            transport=self.transport,
+            ams_address=self.ams_address,
+            commands=self.create_sub_commands(),
+            batch_size=self.batch_size,
+        )
+
+        streams = await command.execute()
+        return await self.dispatcher.multiple(self.deserialize, streams)

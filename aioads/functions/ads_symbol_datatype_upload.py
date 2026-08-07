@@ -5,10 +5,12 @@ https://infosys.beckhoff.com/english.php?content=../content/1033/tc3_adsdll2/124
 """
 
 from aioads.ams_address import AmsAddress
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.commands.ads_read import AdsReadCommand
 from aioads.commands.errors import AdsCommandError
 from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
 from aioads.functions.ads_symbol_datatype_by_name import SymbolDataTypeResponse
+from aioads.stream import AdsStream
 from aioads.transport import ITransport
 
 
@@ -21,9 +23,14 @@ class AdsSymbolDataTypeUpload(IAdsFunction[list[SymbolDataTypeResponse]]):
     """
 
     def __init__(
-        self, transport: ITransport, ams_address: AmsAddress, dt_size: int
+        self,
+        transport: ITransport,
+        dispatcher: DeserializeDispatcher,
+        ams_address: AmsAddress,
+        dt_size: int,
     ) -> None:
         self.transport = transport
+        self.dispatcher = dispatcher
         self.ams_address = ams_address
         self.dt_size = dt_size
 
@@ -31,18 +38,8 @@ class AdsSymbolDataTypeUpload(IAdsFunction[list[SymbolDataTypeResponse]]):
         """serialize function payload to bytes"""
         return b""
 
-    async def execute(self):
-        command = AdsReadCommand(
-            transport=self.transport,
-            ams_address=self.ams_address,
-            idx_group=AdsFunctionSymbolGroup.ADSIGRP_SYM_DT_UPLOAD,
-            idx_offset=0,
-            length=self.dt_size,
-        )
-        header, read_payload = await command.request()
-        if not header.error_code.ok:
-            raise AdsCommandError(header.error_code, "Failed to read datatype info")
-
+    def deserialize(self, read_payload: AdsStream) -> list[SymbolDataTypeResponse]:
+        """deserialize function payload from bytes"""
         symbol_datatypes = list[SymbolDataTypeResponse]()
         start = read_payload.tell()
 
@@ -57,3 +54,17 @@ class AdsSymbolDataTypeUpload(IAdsFunction[list[SymbolDataTypeResponse]]):
             symbol_dt = SymbolDataTypeResponse.deserialize(read_payload)
             symbol_datatypes.append(symbol_dt)
         return symbol_datatypes
+
+    async def execute(self):
+        command = AdsReadCommand(
+            transport=self.transport,
+            ams_address=self.ams_address,
+            idx_group=AdsFunctionSymbolGroup.ADSIGRP_SYM_DT_UPLOAD,
+            idx_offset=0,
+            length=self.dt_size,
+        )
+        header, read_payload = await command.request()
+        if not header.error_code.ok:
+            raise AdsCommandError(header.error_code, "Failed to read datatype info")
+
+        return await self.dispatcher.single(self.deserialize, read_payload)

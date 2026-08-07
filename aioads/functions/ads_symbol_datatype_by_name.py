@@ -43,6 +43,7 @@ from typing import ClassVar
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read_write import AdsReadWriteCommand
 from aioads.commands.errors import AdsCommandError
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
 from aioads.functions.ads_symbol_info_by_name_ex import (
     AdsSymbolDataType,
@@ -201,9 +202,14 @@ class AdsSymbolDataTypeByName(IAdsFunction[SymbolDataTypeResponse]):
     """
 
     def __init__(
-        self, transport: ITransport, ams_address: AmsAddress, datatype_name: str
+        self,
+        transport: ITransport,
+        dispatcher: DeserializeDispatcher,
+        ams_address: AmsAddress,
+        datatype_name: str,
     ) -> None:
         self.transport = transport
+        self.dispatcher = dispatcher
         self.ams_address = ams_address
         self.datatype_name = datatype_name
 
@@ -233,5 +239,6 @@ class AdsSymbolDataTypeByName(IAdsFunction[SymbolDataTypeResponse]):
             raise AdsCommandError(
                 header.error_code, "Failed to read symbol datatype by name"
             )
-        symbol_datatype = SymbolDataTypeResponse.deserialize(read_payload)
-        return symbol_datatype
+        return await self.dispatcher.single(
+            SymbolDataTypeResponse.deserialize, read_payload
+        )
