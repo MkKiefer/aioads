@@ -18,6 +18,7 @@ from aioads.commands.ads_read import AdsReadCommand
 from aioads.commands.ads_read import AdsReadResponse
 from aioads.commands.ads_read_state import ReadStateCommand
 from aioads.commands.errors import AdsCommandError
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_enable_route import AdsEnableRoute
 from aioads.functions.ads_enable_route import RouteSwitch
 from aioads.functions.ads_sum_read import AdsSumRead
@@ -49,6 +50,7 @@ class AdsClient:
     def __init__(
         self,
         transport: ITransport,
+        dispatcher: DeserializeDispatcher,
         dst_address: AmsAddress,
         parser: ISymbolParser,
         cache: AdsSymbolCache,
@@ -62,6 +64,7 @@ class AdsClient:
         self.sum_batch_size = sum_batch_size
         self._cache = cache
         self._notification = notification
+        self.dispatcher = dispatcher
 
     @classmethod
     def create_tcp(
@@ -70,7 +73,6 @@ class AdsClient:
         dst: AmsAddress,
         ip: str,
         port: int = 48898,
-        sum_batch_size: int = 500,
     ) -> "AdsClient":
         """
         Create a new ADS client with TCP transport.
@@ -81,24 +83,9 @@ class AdsClient:
         :param sum_batch_size: Maximum commands per ADS sum command (1..500)
         :return: An instance of AdsClient
         """
-        parser = AdsSymbolParser([])
-        transport = AdsTcpTransport(src_address=src, ip=ip, port=port)
-        cache = AdsSymbolCache(
-            transport=transport, dst_address=dst, batch_size=sum_batch_size
-        )
-        notification_manager = NotificationManager(
-            transport=transport,
-            dst_address=dst,
-            symbol_cache=cache,
-            parser=parser,
-        )
-        return cls(
-            transport=transport,
-            parser=parser,
-            dst_address=dst,
-            cache=cache,
-            notification=notification_manager,
-            sum_batch_size=sum_batch_size,
+
+        return cls.create_from_transport(
+            dst=dst, transport=AdsTcpTransport(src_address=src, ip=ip, port=port)
         )
 
     @classmethod
@@ -117,8 +104,12 @@ class AdsClient:
         :return: An instance of AdsClient
         """
         parser = AdsSymbolParser([])
+        dispatcher = DeserializeDispatcher(offload_size=1024)
         cache = AdsSymbolCache(
-            transport=transport, dst_address=dst, batch_size=sum_batch_size
+            transport=transport,
+            dispatcher=dispatcher,
+            dst_address=dst,
+            batch_size=sum_batch_size,
         )
         notification_manager = NotificationManager(
             transport=transport,
@@ -133,6 +124,7 @@ class AdsClient:
             cache=cache,
             notification=notification_manager,
             sum_batch_size=sum_batch_size,
+            dispatcher=dispatcher,
         )
 
     async def connect(self) -> None:
@@ -190,12 +182,14 @@ class AdsClient:
         """
         tree_info_request = AdsSymbolUploadInfo2(
             transport=self.transport,
+            dispatcher=self.dispatcher,
             ams_address=self.dst_address,
         )
         tree_info = await tree_info_request.execute()
 
         request = AdsSymbolUpload(
             transport=self.transport,
+            dispatcher=self.dispatcher,
             ams_address=self.dst_address,
             tree_size=tree_info.symbol_size,
         )
@@ -207,11 +201,13 @@ class AdsClient:
         """
         tree_info_request = AdsSymbolUploadInfo2(
             transport=self.transport,
+            dispatcher=self.dispatcher,
             ams_address=self.dst_address,
         )
         tree_info = await tree_info_request.execute()
         request = AdsSymbolDataTypeUpload(
             transport=self.transport,
+            dispatcher=self.dispatcher,
             ams_address=self.dst_address,
             dt_size=tree_info.datatype_size,
         )
@@ -223,6 +219,7 @@ class AdsClient:
         """
         request = AdsSymbolDataTypeByName(
             transport=self.transport,
+            dispatcher=self.dispatcher,
             ams_address=self.dst_address,
             datatype_name=datatype_name,
         )
@@ -276,8 +273,7 @@ class AdsClient:
             exceptions.append(AdsCommandError(error_code, symbol_path))
 
         if exceptions:
-            raise ExceptionGroup(
-                "One or more symbol read errors occurred", exceptions)
+            raise ExceptionGroup("One or more symbol read errors occurred", exceptions)
 
     async def read_symbols_by_names(
         self, symbol_names: set[str], raise_errors: bool = True
@@ -310,6 +306,7 @@ class AdsClient:
 
         sum_read = AdsSumRead(
             transport=self.transport,
+            dispatcher=self.dispatcher,
             ams_address=self.dst_address,
             commands=[
                 AdsReadCommand(
@@ -328,7 +325,8 @@ class AdsClient:
         # Parsing is pure-Python and O(total payload size); run it off the
         # event loop so large bulk reads don't block other tasks.
         parsed = await asyncio.to_thread(
-            self._parse_sum_read_response, readable, response)
+            self._parse_sum_read_response, readable, response
+        )
         output.update(parsed)
         return output
 

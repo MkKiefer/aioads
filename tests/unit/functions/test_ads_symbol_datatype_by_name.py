@@ -3,6 +3,7 @@
 import unittest
 from unittest.mock import AsyncMock
 
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_symbol_datatype_by_name import (
     AdsDatatypeArrayInfo,
     AdsSymbolDataTypeByName,
@@ -107,6 +108,7 @@ class TestAdsSymbolDataTypeByName(unittest.IsolatedAsyncioTestCase):
         self.transport = make_transport()
         self.function = AdsSymbolDataTypeByName(
             transport=self.transport,
+            dispatcher=DeserializeDispatcher(offload_size=1024 * 1024),
             ams_address=make_ams_address(),
             datatype_name="MyStruct",
         )

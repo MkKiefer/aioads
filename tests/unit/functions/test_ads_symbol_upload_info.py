@@ -3,6 +3,7 @@
 import unittest
 from unittest.mock import AsyncMock
 
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_symbol_upload_info import (
     AdsSymbolUploadInfo2,
     SymbolUploadInfo2Response,
@@ -52,6 +53,7 @@ class TestAdsSymbolUploadInfo2(unittest.IsolatedAsyncioTestCase):
         self.function = AdsSymbolUploadInfo2(
             transport=self.transport,
             ams_address=make_ams_address(),
+            dispatcher=DeserializeDispatcher(offload_size=1024 * 1024),
         )
 
     def test_serialize_returns_empty_payload(self) -> None:

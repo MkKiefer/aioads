@@ -5,8 +5,10 @@ This module contains a ads function to acquire the symbol infos (metadata) of th
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read import AdsReadCommand
 from aioads.commands.errors import AdsCommandError
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
 from aioads.functions.ads_symbol_info_by_name_ex import SymbolInfo
+from aioads.stream import AdsStream
 from aioads.transport import ITransport
 
 
@@ -19,15 +21,37 @@ class AdsSymbolUpload(IAdsFunction[list[SymbolInfo]]):
     """
 
     def __init__(
-        self, transport: ITransport, ams_address: AmsAddress, tree_size: int
+        self,
+        transport: ITransport,
+        dispatcher: DeserializeDispatcher,
+        ams_address: AmsAddress,
+        tree_size: int,
     ) -> None:
         self.transport = transport
+        self.dispatcher = dispatcher
         self.ams_address = ams_address
         self.tree_size = tree_size
 
     def serialize(self) -> bytes:
         """serialize function payload to bytes"""
         return b""
+
+    def deserialize(self, read_payload: AdsStream) -> list[SymbolInfo]:
+        """
+        Decode the response payload to a list of `SymbolInfo`
+        """
+
+        symbol_infos: list[SymbolInfo] = []
+        start = read_payload.tell()
+        remaining_length = read_payload.length - start
+        if self.tree_size != remaining_length:
+            raise ValueError(
+                f"Expected tree size {self.tree_size}, but got {remaining_length} bytes"
+            )
+        while read_payload.tell() < start + self.tree_size:
+            symbol_info = SymbolInfo.deserialize(read_payload)
+            symbol_infos.append(symbol_info)
+        return symbol_infos
 
     async def execute(self):
         command = AdsReadCommand(
@@ -43,15 +67,4 @@ class AdsSymbolUpload(IAdsFunction[list[SymbolInfo]]):
                 header.error_code, "Failed to request symbol upload info"
             )
 
-        symbol_infos = list[SymbolInfo]()
-
-        start = read_payload.tell()
-        remaining_length = read_payload.length - start
-        if self.tree_size != remaining_length:
-            raise ValueError(
-                f"Expected tree size {self.tree_size}, but got {remaining_length} bytes"
-            )
-        while read_payload.tell() < start + self.tree_size:
-            symbol_info = SymbolInfo.deserialize(read_payload)
-            symbol_infos.append(symbol_info)
-        return symbol_infos
+        return await self.dispatcher.single(self.deserialize, read_payload)

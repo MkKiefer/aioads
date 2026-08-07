@@ -8,6 +8,7 @@ import time
 from aioads.ads_error_codes import AdsErrorCode
 from aioads.ams_address import AmsAddress
 from aioads.commands.errors import AdsCommandError
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_symbol_info_by_name_ex import (
     SymbolInfo,
     SymbolInfoByNameEx,
@@ -28,12 +29,14 @@ class AdsSymbolCache:
     def __init__(
         self,
         transport: ITransport,
+        dispatcher: DeserializeDispatcher,
         dst_address: AmsAddress,
         batch_size: int,
         ttl_seconds: int = 21600,
     ) -> None:
         self._logger = logging.getLogger(f"{__name__}.'{dst_address.net_id}'")
         self._transport = transport
+        self._dispatcher = dispatcher
         self._dst_address = dst_address
         self._ttl_seconds = ttl_seconds
         self._batch_size = batch_size
@@ -141,6 +144,7 @@ class AdsSymbolCache:
 
         function = SymbolInfoByNameEx(
             transport=self._transport,
+            dispatcher=self._dispatcher,
             ams_address=self._dst_address,
             symbol_name=symbol_name,
         )
@@ -175,15 +179,13 @@ class AdsSymbolCache:
         if request_list:
             function = SymbolInfoByNameExSumRead(
                 transport=self._transport,
+                dispatcher=self._dispatcher,
                 ams_address=self._dst_address,
                 symbol_names=request_list,
                 batch_size=self._batch_size,
             )
             response = await function.execute()
-            for (error, symbol_info), symbol_name in zip(
-                response, request_list
-            ):
+            for (error, symbol_info), symbol_name in zip(response, request_list):
                 results[symbol_name] = (AdsErrorCode(error), symbol_info)
-                self._add_to_cache(
-                    symbol_name, AdsErrorCode(error), symbol_info)
+                self._add_to_cache(symbol_name, AdsErrorCode(error), symbol_info)
         return results

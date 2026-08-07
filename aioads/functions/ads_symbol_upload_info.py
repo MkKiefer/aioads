@@ -11,6 +11,7 @@ from typing import ClassVar
 from aioads.ams_address import AmsAddress
 from aioads.commands.ads_read import AdsReadCommand
 from aioads.commands.errors import AdsCommandError
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_function import AdsFunctionSymbolGroup, IAdsFunction
 
 from aioads.stream import AdsStream
@@ -65,9 +66,15 @@ class AdsSymbolUploadInfo2(IAdsFunction[SymbolUploadInfo2Response]):
     Function to acquire basic symbol information
     """
 
-    def __init__(self, transport: ITransport, ams_address: AmsAddress) -> None:
+    def __init__(
+        self,
+        transport: ITransport,
+        dispatcher: DeserializeDispatcher,
+        ams_address: AmsAddress,
+    ) -> None:
         self.transport = transport
         self.ams_address = ams_address
+        self.dispatcher = dispatcher
 
     def serialize(self) -> bytes:
         """serialize function payload to bytes"""
@@ -87,5 +94,7 @@ class AdsSymbolUploadInfo2(IAdsFunction[SymbolUploadInfo2Response]):
             raise AdsCommandError(
                 header.error_code, "Failed to request symbol upload info"
             )
-        symbol_upload_info = SymbolUploadInfo2Response.deserialize(read_payload)
+        symbol_upload_info = await self.dispatcher.single(
+            SymbolUploadInfo2Response.deserialize, read_payload
+        )
         return symbol_upload_info

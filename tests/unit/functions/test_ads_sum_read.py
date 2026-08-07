@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 from parameterized import parameterized
 
 from aioads.commands.ads_read import AdsReadCommand
+from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.functions.ads_sum_read import AdsSumRead
 from tests.builders import (
     make_ams_address,
@@ -21,6 +22,7 @@ class TestAdsSumRead(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.transport = make_transport()
         self.address = make_ams_address()
+        self.dispatcher = DeserializeDispatcher(offload_size=1024 * 1024)
         self.commands = [
             AdsReadCommand(self.transport, self.address, 0x4020, 0, 4),
             AdsReadCommand(self.transport, self.address, 0x4020, 8, 2),
@@ -29,6 +31,7 @@ class TestAdsSumRead(unittest.IsolatedAsyncioTestCase):
     def _function(self, commands, batch_size: int = 500) -> AdsSumRead:
         return AdsSumRead(
             transport=self.transport,
+            dispatcher=self.dispatcher,
             ams_address=self.address,
             commands=commands,
             batch_size=batch_size,
@@ -46,10 +49,12 @@ class TestAdsSumRead(unittest.IsolatedAsyncioTestCase):
             result, self.commands[0].serialize() + self.commands[1].serialize()
         )
 
-    @parameterized.expand([
-        ("zero", 0),
-        ("above_maximum", 501),
-    ])
+    @parameterized.expand(
+        [
+            ("zero", 0),
+            ("above_maximum", 501),
+        ]
+    )
     async def test_execute_batch_size_out_of_range_raises_value_error(
         self, _name: str, batch_size: int
     ) -> None:
@@ -79,8 +84,10 @@ class TestAdsSumRead(unittest.IsolatedAsyncioTestCase):
             AdsReadCommand(self.transport, self.address, 0x4020, 16, 1)
         ]
         first_batch_body = (
-            (0).to_bytes(4, "little") + (0).to_bytes(4, "little")
-            + b"\x01\x02\x03\x04" + b"\xaa\xbb"
+            (0).to_bytes(4, "little")
+            + (0).to_bytes(4, "little")
+            + b"\x01\x02\x03\x04"
+            + b"\xaa\xbb"
         )
         second_batch_body = (0).to_bytes(4, "little") + b"\xcc"
         self.transport.request = AsyncMock(
@@ -102,8 +109,10 @@ class TestAdsSumRead(unittest.IsolatedAsyncioTestCase):
     async def test_execute_returns_response_and_data_per_command(self) -> None:
         # Arrange: 2 error codes (4 bytes each) followed by 4 + 2 data bytes
         body = (
-            (0).to_bytes(4, "little") + (0).to_bytes(4, "little")
-            + b"\x01\x02\x03\x04" + b"\xaa\xbb"
+            (0).to_bytes(4, "little")
+            + (0).to_bytes(4, "little")
+            + b"\x01\x02\x03\x04"
+            + b"\xaa\xbb"
         )
         self.transport.request = AsyncMock(
             return_value=(make_ams_header(), make_stream(make_read_payload(body)))
@@ -120,8 +129,10 @@ class TestAdsSumRead(unittest.IsolatedAsyncioTestCase):
     async def test_execute_maps_per_command_error_codes(self) -> None:
         # Arrange
         body = (
-            (0).to_bytes(4, "little") + (1796).to_bytes(4, "little")
-            + b"\x00\x00\x00\x00" + b"\x00\x00"
+            (0).to_bytes(4, "little")
+            + (1796).to_bytes(4, "little")
+            + b"\x00\x00\x00\x00"
+            + b"\x00\x00"
         )
         self.transport.request = AsyncMock(
             return_value=(make_ams_header(), make_stream(make_read_payload(body)))
