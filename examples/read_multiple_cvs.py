@@ -8,7 +8,7 @@ from aioads.ads_client import AdsClient
 from aioads.ams_address import AmsAddress
 from aioads.ams_service_port import AmsServicePort
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -37,8 +37,13 @@ async def worker(client: AdsClient, csv_file: Path, interval: float) -> None:
     )
 
     while True:
+        start = asyncio.get_event_loop().time()
         values = await client.read_symbols_by_names(symbols)
-        LOGGER.info("%s read %d symbols", csv_file.name, len(values))
+        end = asyncio.get_event_loop().time()
+        elapsed_time = (end - start) * 1000  # Convert to ms
+        LOGGER.info(
+            "%s read %d symbols in %.2fms", csv_file.name, len(values), elapsed_time
+        )
         await asyncio.sleep(interval)
 
 
