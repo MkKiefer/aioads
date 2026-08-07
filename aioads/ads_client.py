@@ -104,7 +104,7 @@ class AdsClient:
         :return: An instance of AdsClient
         """
         parser = AdsSymbolParser([])
-        dispatcher = DeserializeDispatcher(offload_size=1024 * 1024)  # 1 MB
+        dispatcher = DeserializeDispatcher(offload_size=1024)
         cache = AdsSymbolCache(
             transport=transport,
             dispatcher=dispatcher,
@@ -306,6 +306,7 @@ class AdsClient:
 
         sum_read = AdsSumRead(
             transport=self.transport,
+            dispatcher=self.dispatcher,
             ams_address=self.dst_address,
             commands=[
                 AdsReadCommand(
