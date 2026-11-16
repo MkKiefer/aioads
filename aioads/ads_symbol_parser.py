@@ -42,6 +42,16 @@ class ISymbolParser(ABC):
         """Updates the list of remote datatypes"""
         raise NotImplementedError
 
+    def primitive_struct(  # pylint: disable=unused-argument
+        self, data_type: AdsSymbolDataType, type_name: str
+    ) -> struct.Struct | None:
+        """
+        Return the struct definition if a value of the given type is a single
+        fixed size primitive, otherwise None. Lets hot paths (notifications)
+        precompile the decoding of a symbol instead of calling ``parse`` per value.
+        """
+        return None
+
 
 class PrimitiveTypeParser(ISymbolParser):
     """
@@ -79,6 +89,11 @@ class PrimitiveTypeParser(ISymbolParser):
 
     def update_datatypes(self, data_types: list[SymbolDataTypeResponse]) -> None:
         pass
+
+    def primitive_struct(
+        self, data_type: AdsSymbolDataType, type_name: str
+    ) -> struct.Struct | None:
+        return self._struct_def.get(data_type)
 
     def _parse_string(self, type_name: str, raw_data: AdsStream) -> str | None:
         """
@@ -181,7 +196,25 @@ class AdsSymbolParser(ISymbolParser):
         Update the internal datatype lookup with new data types.
         """
         updated_type_map = {dt.name: dt for dt in data_types}
-        self._type_lookup.update(updated_type_map)
+        # Rebind instead of mutating: parsing may run in a worker thread and
+        # must never observe a dict that changes while it is being read.
+        self._type_lookup = {**self._type_lookup, **updated_type_map}
+
+    def primitive_struct(
+        self, data_type: AdsSymbolDataType, type_name: str
+    ) -> struct.Struct | None:
+        # Mirrors the dispatch order of ``parse``.
+        if type_name in self._const_type_names or type_name.startswith(
+            (self.REF, self.PTR, self.ARR)
+        ):
+            return None
+        if data_type != AdsSymbolDataType.BIGTYPE:
+            return self._primitive_parser.primitive_struct(data_type, type_name)
+        if type_name in self._elementary_type_names:
+            return self._primitive_parser.primitive_struct(
+                self._elementary_type_names[type_name], type_name
+            )
+        return None
 
     def parse_array(
         self, data_type: AdsSymbolDataType, type_name: str, raw_data: AdsStream

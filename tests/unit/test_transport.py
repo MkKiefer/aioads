@@ -6,13 +6,17 @@ import socket
 import unittest
 from unittest.mock import Mock
 
+from aioads.ads_error_codes import AdsErrorCode
+from aioads.ams_header import AmsHeader
 from aioads.ams_tcp_header import AmsTcpHeader
 from aioads.commands.ads_command import AdsCommandId
+from aioads.commands.ads_command import AdsCommandState
 from aioads.transport import (
     AdsOverMqttTopics,
     AdsTcpTransport,
     BaseTransport,
     ConnectionState,
+    INotificationSink,
     MqttBaseTransport,
 )
 from tests.builders import make_ams_address
@@ -215,6 +219,33 @@ class TestAdsTcpTransport(unittest.IsolatedAsyncioTestCase):
             await self.transport._read_loop()
 
         self.assertIsInstance(ctx.exception.__cause__, asyncio.IncompleteReadError)
+
+
+    async def test_read_loop_hands_device_notification_to_registry(self) -> None:
+        # Arrange — one notification frame from the remote, then EOF
+        payload = b"\x00" * 8
+        header = AmsHeader(
+            target_ams_address=make_ams_address(),
+            source_ams_address=make_ams_address(net_id="6.5.4.3.2.1"),
+            command_id=AdsCommandId.DEVICE_NOTIFICATION,
+            command_flags=AdsCommandState.ADS_COMMAND | AdsCommandState.ADS_REQUEST,
+            command_length=len(payload),
+            error_code=AdsErrorCode(0),
+            invoke_id=0,
+        ).serialize()
+        frame = AmsTcpHeader(length=len(header) + len(payload)).serialize()
+        self.transport._stream = (reader_at_eof(frame + header + payload), Mock())
+        sink = Mock(spec=INotificationSink)
+        self.transport.set_notification_sink(sink)
+
+        # Act
+        with self.assertRaises(ConnectionError):
+            await self.transport._read_loop()
+
+        # Assert
+        fed_header, fed_payload = sink.feed.call_args.args
+        self.assertEqual(fed_header.source_ams_address.net_id, "6.5.4.3.2.1")
+        self.assertEqual(fed_payload.length, len(payload))
 
 
 class TestAdsTcpTransportReconnect(unittest.IsolatedAsyncioTestCase):

@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from aioads.ads_error_codes import AdsErrorCode
+from aioads.ads_notifications import DEFAULT_QUEUE_SIZE
 from aioads.ads_notifications import NotificationManager
+from aioads.ads_notifications import OverflowPolicy
 from aioads.ads_notifications import TNotificationCallback
 from aioads.ads_symbol_cache import AdsSymbolCache
 from aioads.ads_symbol_parser import AdsSymbolParser
@@ -147,6 +149,7 @@ class AdsClient:
         Disconnect from the ADS device.
         """
         await self._cache.stop_cache_monitor()
+        await self._notification.close()
         await self.transport.disconnect()
 
     async def read_state(self):
@@ -363,9 +366,22 @@ class AdsClient:
         mode: TransmissionMode = TransmissionMode.CYCLIC,
         cycle_time: int = 50,
         max_delay: int = 100,
+        queue_size: int = DEFAULT_QUEUE_SIZE,
+        overflow: OverflowPolicy = OverflowPolicy.DROP_OLDEST,
     ):
         """
         Subscribe to notifications for a symbol by its name.
+
+        The callback is called with batches of values: everything that arrived
+        while the previous call was still running is delivered at once. A slow
+        callback only delays its own subscription.
+
+        :param cycle_time: Interval in ms the remote checks / sends the value.
+        :param max_delay: Maximum time in ms the remote may hold values back to
+            send them together. Higher values mean fewer, bigger frames.
+        :param queue_size: Maximum number of values buffered for the callback.
+        :param overflow: Which values are discarded if the callback cannot keep
+            up and the buffer is full, see :class:`OverflowPolicy`.
         """
         async with self._notification.create_notification(
             symbol_name,
@@ -373,5 +389,7 @@ class AdsClient:
             mode,
             cycle_time,
             max_delay,
+            queue_size,
+            overflow,
         ) as notification_handle:
             yield notification_handle

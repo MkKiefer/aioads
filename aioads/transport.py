@@ -9,10 +9,10 @@ import random
 import re
 import socket
 from abc import ABC
+from abc import abstractmethod
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Callable
-from typing import Coroutine
 from urllib.parse import urlparse
 import uuid
 from xml.etree import ElementTree
@@ -25,6 +25,34 @@ from aioads.ams_tcp_header import AmsTcpHeader
 from aioads.commands.ads_command import AdsCommandId
 from aioads.commands.ads_command import AdsCommandState
 from aioads.stream import AdsStream
+
+
+class INotificationSink(ABC):
+    """
+    Receiver for everything a transport knows about ads notifications.
+
+    The transport itself has no notion of handles or subscriptions: it only
+    forwards the raw device notification frames and its lifecycle events to
+    the attached sink (see :class:`aioads.ads_notifications.NotificationRegistry`).
+    """
+
+    @abstractmethod
+    def feed(self, ams_header: AmsHeader, payload: AdsStream) -> None:
+        """
+        Take over a raw device notification frame.
+        Called from the transport read loop, so it must return immediately.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def on_reconnected(self) -> None:
+        """Called after the transport re-established a lost connection."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def shutdown(self) -> None:
+        """Called before the transport disconnects, while requests are still possible."""
+        raise NotImplementedError
 
 
 class ITransport(ABC):
@@ -55,14 +83,18 @@ class ITransport(ABC):
         """
         raise NotImplementedError
 
-    def set_notification_callback(
-        self, callback: Callable[[AmsHeader, AdsStream], Coroutine[None, None, None]]
-    ) -> None:
+    @property
+    def notification_sink(self) -> INotificationSink | None:
         """
-        Set a callback for ads notification events.
-        This is currently only a experiemntal interface and mybe removed at any time.
-        :param callback: The callback to call when a notification is received.
-        The callback should be a coroutine that takes an AmsHeader and an AdsStream as parameters.
+        The sink incoming device notifications are forwarded to, if any.
+        """
+        raise NotImplementedError
+
+    def set_notification_sink(self, sink: INotificationSink | None) -> None:
+        """
+        Attach the sink that receives incoming device notifications and the
+        lifecycle events of this transport. A transport has exactly one sink,
+        shared by all clients that use the transport.
         """
         raise NotImplementedError
 
@@ -98,18 +130,29 @@ class BaseTransport:
         self._pending_requests: dict[int, asyncio.Future[tuple[AmsHeader, AdsStream]]] = (
             {}
         )
-        self._ads_notification_callback: (
-            None | Callable[[AmsHeader, AdsStream],
-                            Coroutine[None, None, None]]
-        ) = None
+        self._notification_sink: INotificationSink | None = None
 
-    def set_notification_callback(
-        self, callback: Callable[[AmsHeader, AdsStream], Coroutine[None, None, None]]
-    ) -> None:
+    @property
+    def notification_sink(self) -> INotificationSink | None:
         """
-        Setts the callback for incoming notifications
+        The sink incoming device notifications are forwarded to, if any.
         """
-        self._ads_notification_callback = callback
+        return self._notification_sink
+
+    def set_notification_sink(self, sink: INotificationSink | None) -> None:
+        """
+        Attach the sink that receives incoming device notifications and the
+        lifecycle events of this transport.
+        """
+        self._notification_sink = sink
+
+    def _notify_reconnected(self) -> None:
+        if self._notification_sink is not None:
+            self._notification_sink.on_reconnected()
+
+    async def _shutdown_notifications(self) -> None:
+        if self._notification_sink is not None:
+            await self._notification_sink.shutdown()
 
     def cancel_pending_requests(self, ex: BaseException):
         """
@@ -147,7 +190,7 @@ class BaseTransport:
         finally:
             del self._pending_requests[invoke_id]
 
-    async def _handle_response(self, ams_header: AmsHeader, ams_command: AdsStream):
+    def _handle_response(self, ams_header: AmsHeader, ams_command: AdsStream) -> None:
         # Fulfill the corresponding future
         future = self._pending_requests.get(ams_header.invoke_id)
         if future is not None and not future.done():
@@ -158,7 +201,11 @@ class BaseTransport:
                 ams_header.invoke_id,
             )
 
-    async def _handle_request(self, ams_header: AmsHeader, ams_command: AdsStream):
+    def _handle_request(self, ams_header: AmsHeader, ams_command: AdsStream) -> None:
+        """
+        Synchronous on purpose: the read loop must never wait for upper layers,
+        otherwise a slow consumer would stall all responses.
+        """
         if not ams_header.command_id == AdsCommandId.DEVICE_NOTIFICATION:
             self.logger.warning(
                 "Received unexpected request with Command ID %d",
@@ -166,12 +213,12 @@ class BaseTransport:
             )
             return
 
-        if not self._ads_notification_callback:
+        if self._notification_sink is None:
             self.logger.warning(
-                "No notification callback set, dropping notification")
+                "No notification sink attached, dropping notification")
             return
 
-        await self._ads_notification_callback(ams_header, ams_command)
+        self._notification_sink.feed(ams_header, ams_command)
 
     @staticmethod
     async def cancel_task(task: asyncio.Task[None] | None):
@@ -259,11 +306,6 @@ class AdsTcpTransport(BaseTransport, ITransport):
         self._supervisor_task: None | asyncio.Task[None] = None
         self._state = ConnectionState.DISCONNECTED
 
-    def set_notification_callback(
-        self, callback: Callable[[AmsHeader, AdsStream], Coroutine[None, None, None]]
-    ) -> None:
-        self._ads_notification_callback = callback
-
     async def connect(self):
         """
         Connect to the remote PLC via TCP.
@@ -289,8 +331,11 @@ class AdsTcpTransport(BaseTransport, ITransport):
 
         Sets CLOSED first so the supervisor does not attempt to reconnect, then
         tears down the stream (which unblocks the read loop) and awaits the
-        supervisor task.
+        supervisor task. Remaining notification handles are removed from the
+        remote first, while requests are still possible.
         """
+        if self._state is ConnectionState.CONNECTED:
+            await self._shutdown_notifications()
         self._state = ConnectionState.CLOSED
         await self._teardown_stream(ConnectionError("Transport disconnected"))
         await self.cancel_task(self._supervisor_task)
@@ -456,6 +501,7 @@ class AdsTcpTransport(BaseTransport, ITransport):
                 try:
                     await self._open()
                     self.logger.info("Reconnected to the remote")
+                    self._notify_reconnected()
                     break
                 except asyncio.CancelledError:  # pylint: disable=try-except-raise
                     raise
@@ -501,10 +547,10 @@ class AdsTcpTransport(BaseTransport, ITransport):
                 ams_header.command_length)
 
             if AdsCommandState.ADS_RESPONSE in ams_header.command_flags:
-                await self._handle_response(ams_header, ams_command)
+                self._handle_response(ams_header, ams_command)
 
             elif AdsCommandState.ADS_REQUEST in ams_header.command_flags:
-                await self._handle_request(ams_header, ams_command)
+                self._handle_request(ams_header, ams_command)
 
 
 @dataclass
@@ -685,6 +731,7 @@ class AdsAioMqttTransport(MqttBaseTransport, ITransport):
         """
         Disconnect from the MQTT broker.
         """
+        await self._shutdown_notifications()
         await self.client.publish(
             self.topics.pub_info,
             self.create_info_message(online=False),
@@ -751,9 +798,9 @@ class AdsAioMqttTransport(MqttBaseTransport, ITransport):
                         ams_header.command_length)
 
                     if AdsCommandState.ADS_RESPONSE in ams_header.command_flags:
-                        await self._handle_response(ams_header, ams_command)
+                        self._handle_response(ams_header, ams_command)
                     elif AdsCommandState.ADS_REQUEST in ams_header.command_flags:
-                        await self._handle_request(ams_header, ams_command)
+                        self._handle_request(ams_header, ams_command)
                 if (matches := self.topics.matches(self.topics.sub_info, message.topic)):
                     # The initial connect waits till we have the first message received
                     if not self.remotes_initialized.done():
@@ -869,9 +916,9 @@ class AdsGMqttTransport(MqttBaseTransport, ITransport):
                 ams_header.command_length)
 
             if AdsCommandState.ADS_RESPONSE in ams_header.command_flags:
-                await self._handle_response(ams_header, ams_command)
+                self._handle_response(ams_header, ams_command)
             elif AdsCommandState.ADS_REQUEST in ams_header.command_flags:
-                await self._handle_request(ams_header, ams_command)
+                self._handle_request(ams_header, ams_command)
         if (matches := self.topics.matches(self.topics.sub_info, topic)):
             # The initial connect waits till we have the first message received
             if not self.remotes_initialized.done():
@@ -915,6 +962,7 @@ class AdsGMqttTransport(MqttBaseTransport, ITransport):
         """
         Disconnect the transport from the remote PLC.
         """
+        await self._shutdown_notifications()
         self.client.publish(
             message_or_topic=gmqtt.Message(
                 topic=self.topics.pub_info,

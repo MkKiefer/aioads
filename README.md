@@ -121,6 +121,46 @@ for symbol_name, value in values.items():
     print(f"{symbol_name}: {value}")
 ```
 
+### Notifications
+
+Let the PLC push values instead of polling them (still in preview):
+
+```python
+from aioads.ads_notifications import NotificationValue, OverflowPolicy
+from aioads.commands.ads_add_notification import TransmissionMode
+
+async def on_values(values: list[NotificationValue]) -> None:
+    # Called with a batch: everything that arrived while the previous
+    # call was still running is delivered at once.
+    for item in values:
+        print(item.datetime, item.value)
+
+async with client.subscribe_notification(
+    "MAIN.counter",
+    on_values,
+    mode=TransmissionMode.ON_CHANGE,
+    cycle_time=10,   # ms, how often the PLC checks the value
+    max_delay=100,   # ms, the PLC may bundle values up to this long
+    queue_size=1000, # values buffered for the callback
+    overflow=OverflowPolicy.DROP_OLDEST,
+):
+    await asyncio.sleep(10)
+# Leaving the context removes the notification from the PLC.
+```
+
+- A slow callback only delays its own subscription. If it falls behind by more
+  than `queue_size` values, the `overflow` policy decides what is discarded:
+  - `DROP_OLDEST` (default): keep the most recent values.
+  - `DROP_NEWEST`: keep the values that arrived first, discard new ones until
+    the callback caught up.
+  - `LATEST_ONLY`: only ever deliver the most recent value.
+- Notification handles are tracked per transport. Handles nobody uses (for
+  example left behind by a crashed process using the same AMS address) are
+  removed from the PLC as soon as they fire.
+- After a TCP reconnect all subscriptions are registered again automatically.
+- For high-frequency symbols raise `max_delay`: the PLC then sends fewer,
+  bigger frames, which is much cheaper to process.
+
 ## Advanced Usage
 
 ### Custom Transport
