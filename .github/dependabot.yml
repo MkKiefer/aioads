@@ -6,6 +6,10 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # Wait before proposing fresh releases, so a compromised version has time
+    # to be noticed and yanked.
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
@@ -15,6 +19,10 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # Wait before proposing fresh releases, so a compromised version has time
+    # to be noticed and yanked.
+    cooldown:
+      default-days: 7
     groups:
       python:
         patterns: ["*"]
