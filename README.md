@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/MkKiefer/aioads/main/docs/assets/aioads-banner.png" alt="aioads - Asynchronous ADS for Python" width="800">
+</p>
+
 # AIOADS - Asynchronous ADS Library for Python
 
 An asynchronous Python library for communicating with Beckhoff TwinCAT PLCs using the ADS (Automation Device Specification) protocol. This library provides high-performance, async/await-based communication with PLCs for reading symbols, data types, notifications, and more.
