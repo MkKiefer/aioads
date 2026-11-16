@@ -34,3 +34,5 @@ never interfere with the unit test suite or CI.
 - `test_connection.py` — connection lifecycle and device state
 - `test_read_symbols.py` — single / multiple symbol reads and symbol info
 - `test_notifications.py` — device notification subscription
+- `test_performance.py` — time budgets for reads and the lag of notifications
+  (add `--log-cli-level=INFO` to see the measured notification numbers)
