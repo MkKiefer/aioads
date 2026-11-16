@@ -68,9 +68,9 @@ class TestAdsAddNotificationCommand(unittest.IsolatedAsyncioTestCase):
         # Act
         result = self.command.serialize()
 
-        # Assert
+        # Assert — max delay (100 ms) and cycle time (50 ms) are sent in 100 ns ticks
         expected = Struct("<IIIIII16s").pack(
-            0x4020, 0, 4, TransmissionMode.CYCLIC, 100, 50, bytes(16)
+            0x4020, 0, 4, TransmissionMode.CYCLIC, 1_000_000, 500_000, bytes(16)
         )
         self.assertEqual(result, expected)
 

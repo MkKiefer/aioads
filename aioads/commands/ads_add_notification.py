@@ -78,6 +78,8 @@ class AdsAddNotificationCommand(ICommand[AdsAddNotificationResponse]):
     """
 
     SERIALIZE_STRUCT_DEF: Final[Struct] = Struct("<IIIIII16s")
+    TICKS_PER_MS: Final[int] = 10_000
+    """The remote expects max delay and cycle time in 100 ns ticks."""
 
     def __init__(
         self,
@@ -99,7 +101,10 @@ class AdsAddNotificationCommand(ICommand[AdsAddNotificationResponse]):
         :param length: Length of data in bytes, which should be sent per notification.
         :param transmission_mode: See description of the structure ADSTRANSMODE at the ADS-DLL.
         :param max_delay: At the latest after this time, the ADS Device Notification is called. The unit is 1ms.
-        :param cycle_time: The ADS server checks if the value changes in this time slice. The unit is 1ms
+        :param cycle_time: The ADS server checks if the value changes in this time slice. The unit is 1ms.
+            The remote rounds it up to a multiple of its task cycle time.
+
+        Both times are sent to the remote in 100 ns ticks, see :attr:`TICKS_PER_MS`.
 
         """
         self.transport = transport
@@ -117,8 +122,8 @@ class AdsAddNotificationCommand(ICommand[AdsAddNotificationResponse]):
             self.idx_offset,
             self.length,
             self.transmission_mode,
-            self.max_delay,
-            self.cycle_time,
+            self.max_delay * self.TICKS_PER_MS,
+            self.cycle_time * self.TICKS_PER_MS,
             bytes(16),  # Reserved
         )
 

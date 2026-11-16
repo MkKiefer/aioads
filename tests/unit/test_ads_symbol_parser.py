@@ -135,6 +135,37 @@ class TestAdsSymbolParser(unittest.TestCase):
         # Assert
         self.assertEqual(result, 7)
 
+    def test_primitive_struct_primitive_type_returns_matching_struct(self) -> None:
+        # Act
+        result = self.parser.primitive_struct(AdsSymbolDataType.INT16, "INT")
+
+        # Assert
+        self.assertEqual(result.format, "<h")
+
+    def test_primitive_struct_bigtype_elementary_name_returns_struct(self) -> None:
+        # Act — TwinCAT 2 reports elementary types as BIGTYPE
+        result = self.parser.primitive_struct(AdsSymbolDataType.BIGTYPE, "DINT")
+
+        # Assert
+        self.assertEqual(result.format, "<i")
+
+    @parameterized.expand(
+        [
+            ("array", AdsSymbolDataType.INT16, "ARRAY [0..3] OF INT"),
+            ("pointer", AdsSymbolDataType.UINT64, "POINTER TO INT"),
+            ("string", AdsSymbolDataType.STRING, "STRING(80)"),
+            ("struct", AdsSymbolDataType.BIGTYPE, "ST_Example"),
+        ]
+    )
+    def test_primitive_struct_non_primitive_returns_none(
+        self, _name: str, data_type: AdsSymbolDataType, type_name: str
+    ) -> None:
+        # Act
+        result = self.parser.primitive_struct(data_type, type_name)
+
+        # Assert
+        self.assertIsNone(result)
+
     def test_parse_reference_returns_hex_with_caret(self) -> None:
         # Arrange
         stream = make_stream(bytes(range(8)))

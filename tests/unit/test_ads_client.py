@@ -3,12 +3,15 @@
 import struct
 import unittest
 from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
 
 from aioads.ads_client import AdsClient
 from aioads.ads_error_codes import AdsErrorCode
 from aioads.ads_symbol_cache import AdsSymbolCache
 from aioads.ads_symbol_parser import AdsSymbolParser
 from aioads.ads_notifications import NotificationManager
+from aioads.ads_notifications import OverflowPolicy
+from aioads.commands.ads_add_notification import TransmissionMode
 from aioads.deserialize_dispatcher import DeserializeDispatcher
 from aioads.commands.ads_read_state import AdsDeviceState, AdsState, AdsStateResponse
 from aioads.commands.ads_write import AdsWriteResponse
@@ -189,6 +192,46 @@ class TestAdsClient(unittest.IsolatedAsyncioTestCase):
             await self.client.read_symbols_by_names({"MAIN.BAD"}, raise_errors=True)
 
         self.assertEqual(len(ctx.exception.exceptions), 1)
+
+    async def test_disconnect_closes_notifications(self) -> None:
+        # Arrange
+        self.notification.close = AsyncMock()
+
+        # Act
+        await self.client.disconnect()
+
+        # Assert
+        self.notification.close.assert_awaited_once()
+
+    async def test_subscribe_notification_delegates_to_notification_manager(
+        self,
+    ) -> None:
+        # Arrange
+        callback = AsyncMock()
+        self.notification.create_notification = MagicMock()
+
+        # Act
+        async with self.client.subscribe_notification(
+            "MAIN.VALUE",
+            callback,
+            mode=TransmissionMode.ON_CHANGE,
+            cycle_time=10,
+            max_delay=20,
+            queue_size=5,
+            overflow=OverflowPolicy.LATEST_ONLY,
+        ):
+            pass
+
+        # Assert
+        self.notification.create_notification.assert_called_once_with(
+            "MAIN.VALUE",
+            callback,
+            TransmissionMode.ON_CHANGE,
+            10,
+            20,
+            5,
+            OverflowPolicy.LATEST_ONLY,
+        )
 
 
 if __name__ == "__main__":
