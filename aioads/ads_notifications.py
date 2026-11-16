@@ -300,21 +300,34 @@ class NotificationRegistry(INotificationSink):
     """
 
     MAX_SUBSCRIPTIONS = 500
-    """Limit per remote address. TwinCAT allows 1024 registrations per port for all clients together."""
+    """Default limit per remote address. TwinCAT allows 1024 registrations per port for all clients together."""
     MAX_PENDING_FRAMES = 4096
     """Ingress bound; if the pump falls behind further the oldest frames are dropped."""
     MAX_BATCH_FRAMES = 256
     """Maximum number of frames decoded in one go."""
     OFFLOAD_SIZE = 16 * 1024
-    """Batches with at least this many payload bytes are decoded in a worker thread."""
+    """Default payload size from which a batch is decoded in a worker thread."""
     REAP_RETRY_DELAY = 5.0
     """Seconds before a failed removal of an unknown handle is attempted again."""
     SHUTDOWN_TIMEOUT = 5.0
     """Maximum time spent on removing remote handles during shutdown."""
 
-    def __init__(self, transport: ITransport) -> None:
+    def __init__(
+        self,
+        transport: ITransport,
+        max_subscriptions: int = MAX_SUBSCRIPTIONS,
+        offload_size: int = OFFLOAD_SIZE,
+    ) -> None:
+        """
+        :param transport: The transport used to add / delete handles on the remote.
+        :param max_subscriptions: Limit of active subscriptions per remote address.
+        :param offload_size: Batches with at least this many payload bytes are
+            decoded in a worker thread instead of the event loop.
+        """
         self._logger = logging.getLogger(__name__)
         self._transport = transport
+        self.max_subscriptions = max_subscriptions
+        self.offload_size = offload_size
         # Copy-on-write: the dict is replaced, never mutated, so the decode
         # thread can use it as a consistent snapshot without locking.
         self._routes: dict[RouteKey, Subscription] = {}
@@ -387,7 +400,7 @@ class NotificationRegistry(INotificationSink):
                     size += frame[1].length
                     frames.append(frame)
                 try:
-                    if size >= self.OFFLOAD_SIZE:
+                    if size >= self.offload_size:
                         result = await asyncio.to_thread(
                             decode_frames, frames, self._routes
                         )
@@ -548,7 +561,7 @@ class NotificationRegistry(INotificationSink):
         :param overflow: Which values are discarded once the buffer is full.
         """
         active = sum(1 for sub in self._routes.values() if sub.address == address)
-        if active >= self.MAX_SUBSCRIPTIONS:
+        if active >= self.max_subscriptions:
             raise ValueError("Maximum number of notifications reached")
 
         subscription = Subscription(

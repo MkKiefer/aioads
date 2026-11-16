@@ -4,9 +4,12 @@ import asyncio
 import logging
 import socket
 import unittest
+from collections.abc import Callable
+from unittest.mock import AsyncMock
 from unittest.mock import Mock
 
 from aioads.ads_error_codes import AdsErrorCode
+from aioads.ads_notifications import NotificationRegistry
 from aioads.ams_header import AmsHeader
 from aioads.ams_tcp_header import AmsTcpHeader
 from aioads.commands.ads_command import AdsCommandId
@@ -16,10 +19,16 @@ from aioads.transport import (
     AdsTcpTransport,
     BaseTransport,
     ConnectionState,
-    INotificationSink,
     MqttBaseTransport,
 )
 from tests.builders import make_ams_address
+
+
+async def wait_until(predicate: Callable[[], bool], timeout: float = 2.0) -> None:
+    """Let the event loop run until ``predicate`` holds."""
+    async with asyncio.timeout(timeout):
+        while not predicate():
+            await asyncio.sleep(0.001)
 
 
 def reader_at_eof(data: bytes = b"") -> asyncio.StreamReader:
@@ -221,31 +230,103 @@ class TestAdsTcpTransport(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(ctx.exception.__cause__, asyncio.IncompleteReadError)
 
 
-    async def test_read_loop_hands_device_notification_to_registry(self) -> None:
-        # Arrange — one notification frame from the remote, then EOF
+class TestAdsTcpTransportNotifications(unittest.IsolatedAsyncioTestCase):
+    """Hand-over of notifications and lifecycle events to the attached sink."""
+
+    async def asyncSetUp(self) -> None:
+        self.peer_writers: list[asyncio.StreamWriter] = []
+
+        async def accept(
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        ) -> None:
+            self.peer_writers.append(writer)
+            await reader.read()
+            writer.close()
+
+        self.server = await asyncio.start_server(accept, "127.0.0.1", 0)
+        port = self.server.sockets[0].getsockname()[1]
+        self.remote_address = make_ams_address(net_id="6.5.4.3.2.1")
+        self.transport = AdsTcpTransport(
+            src_address=make_ams_address(), ip="127.0.0.1", port=port
+        )
+        # Reconnect quickly so the reconnect test does not slow down the suite.
+        self.transport.RECONNECT_INITIAL_BACKOFF = 0.01
+        # Real typed sink; tests replace only the method they assert on.
+        self.registry = NotificationRegistry(self.transport)
+
+    async def asyncTearDown(self) -> None:
+        await self.transport.disconnect()
+        self.server.close()
+        await self.server.wait_closed()
+
+    async def connect(self) -> asyncio.StreamWriter:
+        """Connect the transport and return the writer of the accepting peer."""
+        await self.transport.connect()
+        await wait_until(lambda: len(self.peer_writers) > 0)
+        return self.peer_writers[0]
+
+    def notification_frame(self) -> bytes:
+        """A complete AMS/TCP frame carrying an (empty) device notification."""
         payload = b"\x00" * 8
         header = AmsHeader(
             target_ams_address=make_ams_address(),
-            source_ams_address=make_ams_address(net_id="6.5.4.3.2.1"),
+            source_ams_address=self.remote_address,
             command_id=AdsCommandId.DEVICE_NOTIFICATION,
             command_flags=AdsCommandState.ADS_COMMAND | AdsCommandState.ADS_REQUEST,
             command_length=len(payload),
             error_code=AdsErrorCode(0),
             invoke_id=0,
         ).serialize()
-        frame = AmsTcpHeader(length=len(header) + len(payload)).serialize()
-        self.transport._stream = (reader_at_eof(frame + header + payload), Mock())
-        sink = Mock(spec=INotificationSink)
-        self.transport.set_notification_sink(sink)
+        tcp_header = AmsTcpHeader(length=len(header) + len(payload)).serialize()
+        return tcp_header + header + payload
+
+    async def test_device_notification_from_remote_is_fed_to_sink(self) -> None:
+        # Arrange
+        self.registry.feed = Mock()
+        self.transport.set_notification_sink(self.registry)
+        peer = await self.connect()
 
         # Act
-        with self.assertRaises(ConnectionError):
-            await self.transport._read_loop()
+        peer.write(self.notification_frame())
+        await wait_until(lambda: self.registry.feed.called)
 
         # Assert
-        fed_header, fed_payload = sink.feed.call_args.args
-        self.assertEqual(fed_header.source_ams_address.net_id, "6.5.4.3.2.1")
-        self.assertEqual(fed_payload.length, len(payload))
+        fed_header = self.registry.feed.call_args.args[0]
+        self.assertEqual(fed_header.source_ams_address, self.remote_address)
+
+    async def test_device_notification_without_sink_logs_warning(self) -> None:
+        # Arrange
+        peer = await self.connect()
+
+        # Act / Assert
+        with self.assertLogs(self.transport.logger, level="WARNING") as logs:
+            peer.write(self.notification_frame())
+            await wait_until(lambda: len(logs.records) > 0)
+
+    async def test_disconnect_shuts_down_sink(self) -> None:
+        # Arrange
+        self.registry.shutdown = AsyncMock()
+        self.transport.set_notification_sink(self.registry)
+        await self.connect()
+
+        # Act
+        await self.transport.disconnect()
+
+        # Assert
+        self.registry.shutdown.assert_awaited_once()
+
+    async def test_reconnect_after_connection_loss_notifies_sink(self) -> None:
+        # Arrange
+        self.registry.on_reconnected = Mock()
+        self.transport.set_notification_sink(self.registry)
+        peer = await self.connect()
+
+        # Act — the remote drops the connection, the supervisor reconnects
+        peer.close()
+        await wait_until(lambda: self.registry.on_reconnected.called)
+
+        # Assert
+        self.registry.on_reconnected.assert_called_once()
 
 
 class TestAdsTcpTransportReconnect(unittest.IsolatedAsyncioTestCase):

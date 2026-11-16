@@ -13,6 +13,7 @@ class TestNotifications(IntegrationTestCase):
     """Subscribe to the symbol defined as `symbols.notification` in the config."""
 
     async def test_subscribe_notification_delivers_values(self) -> None:
+        # Arrange
         symbol_name = self.config["symbols"]["notification"]
         received: list[NotificationValue] = []
         first_batch = asyncio.Event()
@@ -21,21 +22,26 @@ class TestNotifications(IntegrationTestCase):
             received.extend(values)
             first_batch.set()
 
+        # Act
         async with self.client.subscribe_notification(
             symbol_name, callback, TransmissionMode.CYCLIC, cycle_time=10, max_delay=50
         ) as handle:
             await asyncio.wait_for(first_batch.wait(), timeout=5)
 
-        self.assertTrue(all(value.handle == handle for value in received))
+        # Assert — every received value belongs to the subscription
+        self.assertEqual({value.handle for value in received}, {handle})
 
     async def test_subscribe_notification_removes_handle_on_exit(self) -> None:
+        # Arrange
         symbol_name = self.config["symbols"]["notification"]
+        registry = NotificationRegistry.attach(self.client.transport)
 
         async def callback(_values: list[NotificationValue]) -> None:
             return None
 
+        # Act
         async with self.client.subscribe_notification(symbol_name, callback):
             pass
 
-        registry = NotificationRegistry.attach(self.client.transport)
+        # Assert
         self.assertEqual(registry.subscriptions, [])
